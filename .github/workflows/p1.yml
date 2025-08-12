@@ -1,0 +1,37 @@
+name: Build p1.png from rates.json
+on:
+  push:
+    paths:
+      - "docs/rates.json"
+      - "scripts/render-p1.mjs"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # وابستگی‌های node-canvas
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install node deps
+        run: npm i canvas@2
+
+      - name: Render p1.png
+        run: node scripts/render-p1.mjs
+
+      - name: Commit artifact
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/p1.png docs/p1.html
+          git commit -m "build p1.png" || echo "no changes"
+          git push
