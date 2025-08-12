@@ -12,42 +12,56 @@ const PREV_SPOT_PATH = path.join(STATE, "prev_spot.json");
 
 fs.mkdirSync(STATE, { recursive: true });
 
+// 1) ترتیب و برچسب‌ها (همان قبلی است؛ اگر rates.json ارزهای بیشتری دارد می‌افزایی)
 const ORDER = ["USD_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
 const LABELS = {
   USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
   JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
 };
-const FLAGS = { // ایموجی پرچم؛ اگر رندر نشد، فقط code نشان داده می‌شود
-  USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷", JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲"
+
+// 2) پرچم‌ها (ایموجی رنگی)
+const FLAGS = {
+  USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷",
+  JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲"
 };
 
-// رنگ‌های ثابت و نوارِ رنگیِ هر ارز (برای حس جدول رنگیِ عکس 2)
+// 3) تم رنگی مطابق تصویر
 const COLORS = {
-  text: "#1f2a39",
-  link: "#1a73e8",
-  headBg: "#dfeaf7",
-  headText: "#2c3e50",
-  rowBg: "#f6f8fb",
-  rowDivider: "#e6eefc",
-  up: "#2e7d32",
-  down: "#c62828",
-  flat: "#1e88e5",
-  caret: "#1a73e8"
+  text: "#22303a",        // رنگ متن‌ها و اعداد
+  link: "#1976d2",        // رنگ کُد ارز (USD…)
+  headBg: "#e9eef5",      // پس‌زمینه سرستون
+  headText: "#2c3e50",    // متن سرستون
+  rowBg: "#ffffff",       // زمینه ردیف‌ها (سفید مثل عکس)
+  rowDivider: "#d9e2ef",  // خط جداکننده‌ی کم‌رنگ
+  up: "#2e7d32",          // فلشِ افزایش
+  down: "#c62828",        // فلشِ کاهش
+  flat: "#1e88e5",        // فلشِ ثابت (▶ آبی)
+  caret: "#1e88e5"        // مثلث کوچکِ قبل از اعداد (آبی)
 };
 
-const STRIPE = { // رنگ نوار باریک سمت چپ هر ردیف
-  USD: "#3b82f6", // آبی
-  EUR: "#1e40af", // آبی تیره
-  GBP: "#ef4444", // قرمز
-  TRY: "#dc2626", // قرمز
-  JPY: "#f43f5e", // صورتی/قرمز
-  CNY: "#b91c1c", // قرمز پرچم
-  GEL: "#7c3aed", // بنفش
-  AMD: "#f97316"  // نارنجی
+// 4) نوار کناریِ ردیف‌ها (در تصویر وجود ندارد) ⇒ غیرفعال
+const THEME = {
+  enableLeftStripe: false // بعداً در تابع row از این استفاده می‌کنیم
+};
+// اگر بخواهی بعداً فعالش کنی، true کن و این پالت را بده:
+const STRIPE = {
+  USD: "#3b82f6", EUR: "#1e40af", GBP: "#ef4444", TRY: "#dc2626",
+  JPY: "#f43f5e", CNY: "#b91c1c", GEL: "#7c3aed", AMD: "#f97316"
 };
 
-function readJSON(p, fb){ if(!fs.existsSync(p)) return fb; try{return JSON.parse(fs.readFileSync(p,"utf-8"))}catch{return fb} }
-function writeJSON(p, o){ fs.writeFileSync(p, JSON.stringify(o,null,2)) }
+// 5) ابعاد و جای ستون‌ها برای چیدمان شبیه عکس
+const W=1100, PAD=16, HEADER_TOP=12, TITLE_H=36, SUB_H=20;
+const TABLE_Y = HEADER_TOP + TITLE_H + SUB_H + 12;
+const ROW_H = 44, ROW_GAP=2;
+const COL = {
+  flag: PAD+6,    // پرچم
+  code: PAD+46,   // کُد ارز آبی
+  curr: PAD+110,  // نام ارز
+  sell: PAD+700,  // ستون Sell
+  buy : PAD+900   // ستون Buy
+};
+
+// 6) فرمت عدد و جهت روند (بدون تغییر نسبت به قبل)
 function fmt(n){ const v=Number(n); return isFinite(v)?v.toLocaleString("en-US"):"-"; }
 function signDir(cur, prev){ if(!isFinite(prev)) return 0; const d=cur-prev; return Math.abs(d)<1?0:(d>0?1:-1); }
 
