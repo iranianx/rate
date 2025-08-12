@@ -1,13 +1,18 @@
 name: Build p1.png from rates.json
 on:
-  workflow_dispatch:   # فقط اجرا دستی
+  workflow_dispatch: {}   # فقط دستی
+
+permissions:
+  contents: write         # اجازهٔ commit/push
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true   # از GITHUB_TOKEN استفاده کن
 
-      # نصب پیش‌نیازهای node-canvas
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -23,10 +28,10 @@ jobs:
       - name: Render p1.png
         run: node scripts/render-p1.mjs
 
-      - name: Commit artifact
+      - name: Commit & push p1.png
         run: |
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add docs/p1.png docs/p1.html
-          git commit -m "build p1.png" || echo "no changes"
+          git commit -m "build p1.png" || exit 0
           git push
