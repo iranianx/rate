@@ -63,7 +63,13 @@ const STRIPE = {
 const W=1100, PAD=16, HEADER_TOP=12, TITLE_H=36, SUB_H=20;
 const TABLE_Y = HEADER_TOP + TITLE_H + SUB_H + 12;
 const ROW_H = 44, ROW_GAP=2;
-const COL = { flag: PAD+6, code: PAD+46, curr: PAD+110, sell: PAD+700, buy: PAD+900 };
+const COL = {
+  flag: PAD+6,
+  code: PAD+46,
+  curr: PAD+128,   // کمی راست‌تر تا فضا بازتر شود
+  sell: PAD+680,   // به چپ‌تر برای شبیه‌سازی نمونه
+  buy : PAD+860
+};
 
 // ---------- کمکی‌های اعداد ----------
 function fmt(n){ const v=Number(n); return isFinite(v)?v.toLocaleString("en-US"):"-"; }
@@ -90,28 +96,21 @@ function roundedRect(ctx,x,y,w,h,r=8){
   ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
 }
 
-// نوار عنوان جدول + تیتر/زمان
+// نوار عنوان جدول (بدون تیتر و بدون متن قرمز)
 function header(ctx, updatedAt){
-  // تیتر و زمان (درصورت نیاز می‌توانی حذفشان کنی)
-  ctx.fillStyle="#000"; ctx.font="700 26px system-ui, Arial";
-  ctx.fillText("IranianX — Fiat", PAD, HEADER_TOP + 26);
-
-  ctx.fillStyle="#c00"; ctx.font="700 14px system-ui, Arial";
-  const ts = updatedAt ? new Date(updatedAt).toLocaleString() : new Date().toLocaleString();
-  ctx.fillText("Updated: " + ts, PAD, HEADER_TOP + 26 + 18);
-
-  // نوار عنوان ستون‌ها (Code / Currency / Sell / Buy)
   const y = TABLE_Y - 32, x = PAD, w = W - PAD*2, h = 32;
-  ctx.fillStyle = COLORS.headBg; roundedRect(ctx, x, y, w, h, 8); ctx.fill();
-  ctx.fillStyle = COLORS.headText; ctx.font = "700 14px system-ui, Arial";
 
-  // Code/Currency چپ‌چین
+  // پس‌زمینه‌ی آبیِ روشنِ سرستون
+  ctx.fillStyle = COLORS.headBg;
+  roundedRect(ctx, x, y, w, h, 8);
+  ctx.fill();
+
+  // برچسب‌ها
+  ctx.fillStyle = COLORS.headText;
+  ctx.font = "700 14px system-ui, Arial";
   ctx.textAlign = "left";
   ctx.fillText("Code",     COL.code, y+22);
   ctx.fillText("Currency", COL.curr, y+22);
-
-  // Sell/Buy هم چپ‌چین (برای هماهنگی با اعداد چپ‌چین)
-  ctx.textAlign = "left";
   ctx.fillText("Sell",     COL.sell, y+22);
   ctx.fillText("Buy",      COL.buy,  y+22);
 }
@@ -133,16 +132,21 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// عدد را با مثلث در چپِ عدد (بدون هم‌پوشانی) رسم می‌کند — همه چیز چپ‌چین
+// عدد را چپ‌چین می‌نویسد و مثلث را سمت چپ عدد می‌گذارد؛ رنگ عدد همیشه مشکی/تیره
 function drawValueWithTriangle(ctx, value, colX, baseY, dir){
   const txt = fmt(value);
-  ctx.textAlign = "left";
-  ctx.font = "600 18px system-ui, Arial";
-  ctx.fillStyle = COLORS.text;
 
+  // مثلث
   const triW = 10, gap = 8;
   const triX = colX - (triW + gap);      // مثلث کمی چپ‌تر از شروع عدد
+  ctx.save();
   trendArrow(ctx, dir, triX, baseY + 12);
+  ctx.restore();
+
+  // عدد (مشکی/تیره)
+  ctx.textAlign = "left";
+  ctx.font = "600 18px system-ui, Arial";
+  ctx.fillStyle = COLORS.text; // #22303a — اگر می‌خواهی کاملاً مشکی باشد: "#000"
   ctx.fillText(txt, colX, baseY + 27);
 }
 // ===== پایان بخش 2 =====
