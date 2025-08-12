@@ -13,12 +13,12 @@
     "KWD_TMN": 300000,
     "IQD_TMN": 70,
     "SAR_TMN": 24000,
+    "TRY_TMN": 3000,
+    "GEL_TMN": 35000
     "AZN_TMN": 55000,
     "AMD_TMN": 240,
-    "TRY_TMN": 3000,
     "JPY_TMN": 600,
-    "CNY_TMN": 13000,
-    "GEL_TMN": 35000,
+    "CNY_TMN": 13000,,
     "AFN_TMN": 1300
   },
   "sources": {}
