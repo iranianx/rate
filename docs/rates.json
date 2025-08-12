@@ -1,6 +1,6 @@
 {
-  "updated_at": "1970-01-01T00:00:00Z",
-  "delta": { "usd_pct": 0.0, "usdt_pct": 0.0, "quality": { "usd": {"active":0}, "usdt":{"active":0} } },
+  "updated_at": "2025-08-12T13:20:00Z",
+  "delta": { "usd_pct": 0.0, "usdt_pct": 0.0, "quality": { "usd": { "active": 0 }, "usdt": { "active": 0 } } },
   "spot": {
     "USD_TMN": 93000,
     "USDT_TMN": 95000,
@@ -14,11 +14,11 @@
     "IQD_TMN": 70,
     "SAR_TMN": 24000,
     "TRY_TMN": 3000,
-    "GEL_TMN": 35000
+    "GEL_TMN": 35000,
     "AZN_TMN": 55000,
     "AMD_TMN": 240,
     "JPY_TMN": 600,
-    "CNY_TMN": 13000,,
+    "CNY_TMN": 13000,
     "AFN_TMN": 1300
   },
   "sources": {}
