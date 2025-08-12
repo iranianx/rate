@@ -247,52 +247,52 @@ async function main(){
 
     const sym = code.replace("_TMN", "");
     const buy = Math.max(0, Math.round(Number(sell) * (1 - spreadPct/100)));
-
-    // جهت مثلث بر اساس تغییر درصدی نسبت به مقدار قبلی و آستانه ۱٪
-    const dir = percentDir(sell, prev[code], 1);
+    const dir = percentDir(sell, prev[code], 1); // ±1%
 
     rows.push({ sym, label: LABELS[sym] || sym, sell: Number(sell), buy, dir, code });
   }
-  if (rows.length === 0) {
-    throw new Error("No rows to render (check ORDER or rates.spot)");
-  }
+  if (rows.length === 0) throw new Error("No rows to render (check ORDER or rates.spot)");
 
-  // پرچم‌ها را یک‌بار از docs/flags/ بارگذاری کن (USD.png, EUR.png, ...)
-  // اگر نبود، در row به‌صورت خودکار از ایموجی fallback استفاده می‌شود.
+  // پرچم‌ها از docs/flags/ (اگر نبود: fallback ایموجی)
   const flagEntries = await Promise.all(rows.map(async (r) => {
     const fp = path.join(FLAGS_DIR, `${r.sym}.png`);
     if (fs.existsSync(fp)) {
-      try {
-        const img = await loadImage(fp);
-        return [r.sym, img];
-      } catch {
-        return [r.sym, null];
-      }
+      try { return [r.sym, await loadImage(fp)]; } catch { /* ignore */ }
     }
     return [r.sym, null];
   }));
   const flagImgs = Object.fromEntries(flagEntries);
 
-  // بوم
-  const H = TABLE_Y + rows.length*(ROW_H+ROW_GAP) + PAD + 12;
-  const canvas = createCanvas(W, H);
+  // --- اندازه‌گیری پویا برای حذف فضای خالی سمت راست (بعدِ Buy) ---
+  const measureCtx = createCanvas(10, 10).getContext("2d");
+  measureCtx.font = "600 18px system-ui, Arial";
+  let maxNumW = 0;
+  for (const r of rows){
+    maxNumW = Math.max(
+      maxNumW,
+      measureCtx.measureText(fmt(r.buy)).width,
+      measureCtx.measureText(fmt(r.sell)).width
+    );
+  }
+  // برای tableWidth() در بخش 2
+  globalThis.NUM_W_EST = Math.ceil(maxNumW);
+
+  // بوم با عرض دقیق جدول
+  const BOTTOM_PAD = 6;
+  const H  = TABLE_Y + rows.length*(ROW_H + ROW_GAP) + BOTTOM_PAD;
+  const CW = PAD + tableWidth() + PAD; // عرض کل تصویر = چپ PAD + عرض جدول + راست PAD
+  const canvas = createCanvas(CW, H);
   const ctx = canvas.getContext("2d");
 
   // پس‌زمینه
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, CW, H);
 
   // هدر جدول
   header(ctx, rates.updated_at);
 
   // بدنه جدول
   rows.forEach((r,i) => row(ctx, i, { ...r, flagImg: flagImgs[r.sym] || null }));
-
-  // فوتر کم‌رنگ
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#9aa0a6";
-  ctx.font = "400 12px system-ui, Arial";
-  ctx.fillText("IranianX.com • © " + new Date().getFullYear(), PAD, H-8);
 
   // خروجی + ذخیره prev برای نوبت بعد
   fs.writeFileSync(OUT, canvas.toBuffer("image/png"));
