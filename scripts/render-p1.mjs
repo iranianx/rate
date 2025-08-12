@@ -186,7 +186,9 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   const x = PAD, w = W - PAD*2, h = ROW_H;
 
   // پس‌زمینه ردیف و خط جداکننده
-  ctx.fillStyle = COLORS.rowBg; roundedRect(ctx, x, y, w, h, 10); ctx.fill();
+  ctx.fillStyle = COLORS.rowBg;
+  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 10, bl: 10 });
+  ctx.fill();
   ctx.strokeStyle = COLORS.rowDivider; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(x+10, y+h); ctx.lineTo(x+w-10, y+h); ctx.stroke();
 
