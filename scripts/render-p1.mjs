@@ -73,8 +73,8 @@ const COL = {
   flag: PAD + 6,
   code: PAD + 46,
   curr: PAD + 150,
-  buy : PAD + 500,  // نزدیک‌تر شد
-  sell: PAD + 660   // کمی بعد از Buy
+  buy : PAD + 480,  // نزدیک‌تر شد
+  sell: PAD + 640   // کمی بعد از Buy
 };
 
 // ---------- کمکی‌های اعداد ----------
@@ -104,7 +104,7 @@ function roundedRect(ctx,x,y,w,h,r=8){
 
 // نوار عنوان جدول (بدون تیتر و بدون متن قرمز)
 function header(ctx, updatedAt){
-  const y = TABLE_Y - 32, x = PAD, w = W - PAD*2, h = 32;
+  const y = TABLE_Y - 32, x = PAD, w = tableWidth(), h = 32;
 
   // پس‌زمینه‌ی آبیِ روشنِ سرستون
   ctx.fillStyle = COLORS.headBg;
