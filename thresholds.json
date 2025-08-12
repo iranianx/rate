@@ -1,0 +1,7 @@
+{
+  "flat_cut_abs_pct": 0.02,
+  "market_min_median": 0.15,
+  "half_weight_gap_pct": 5.0,
+  "drop_gap_pct": 10.0,
+  "ttl_minutes": 45
+}
