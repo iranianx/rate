@@ -60,15 +60,21 @@ const STRIPE = {
 };
 
 // ---------- ابعاد و جای ستون‌ها ----------
-const W=1100, PAD=16, HEADER_TOP=12, TITLE_H=36, SUB_H=20;
-const TABLE_Y = HEADER_TOP + TITLE_H + SUB_H + 12;
-const ROW_H = 44, ROW_GAP=2;
+const W = 1100, PAD = 16;
+// بدون فاصله‌ی اضافی بالا
+const HEADER_TOP = 0, TITLE_H = 0, SUB_H = 0;
+// هدر از پیکسل 0 شروع شود
+const TABLE_Y = 32;
+
+const ROW_H = 44, ROW_GAP = 2;
+
+// ستون‌ها: Buy نزدیکِ Currency؛ Sell بعد از آن
 const COL = {
-  flag: PAD+6,
-  code: PAD+46,
-  curr: PAD+150,  // کمی راست‌تر از قبل
-  sell: PAD+620,  // چپ‌تر شد تا به Currency نزدیک‌تر شود
-  buy : PAD+800   // متناسب با Sell تنظیم شد
+  flag: PAD + 6,
+  code: PAD + 46,
+  curr: PAD + 150,
+  buy : PAD + 520,  // نزدیک‌تر شد
+  sell: PAD + 680   // کمی بعد از Buy
 };
 
 // ---------- کمکی‌های اعداد ----------
@@ -187,8 +193,8 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   ctx.fillText(label, COL.curr, y+27);
 
   // Sell و Buy: یک مثلث کنار عدد (بدون هم‌پوشانی)
-  drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
   drawValueWithTriangle(ctx, buy,  COL.buy,  y, dir);
+  drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
 }
 // ===== پایان بخش 3 =====
 
