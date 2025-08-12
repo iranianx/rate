@@ -73,8 +73,8 @@ const COL = {
   flag: PAD + 6,
   code: PAD + 46,
   curr: PAD + 150,
-  buy : PAD + 480,  // نزدیک‌تر شد
-  sell: PAD + 640   // کمی بعد از Buy
+  buy : PAD + 450,  // نزدیک‌تر شد
+  sell: PAD + 590   // کمی بعد از Buy
 };
 
 // ---------- کمکی‌های اعداد ----------
