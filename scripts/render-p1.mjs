@@ -93,13 +93,23 @@ function percentDir(cur, prev, thresholdPct = 1){
 
 // ===== بخش 2: توابع پایه‌ی رسم =====
 
-// مستطیل با گوشه‌گرد برای ردیف‌ها و هدر
-function roundedRect(ctx,x,y,w,h,r=8){
+// مستطیل با شعاعِ مستقل برای هر گوشه
+function roundedRectCorners(ctx, x, y, w, h, r){
+  const tl = (r?.tl ?? r) || 0;
+  const tr = (r?.tr ?? r) || 0;
+  const br = (r?.br ?? r) || 0;
+  const bl = (r?.bl ?? r) || 0;
   ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
-  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
-  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
-  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+  ctx.moveTo(x + tl, y);
+  ctx.lineTo(x + w - tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+  ctx.lineTo(x + w, y + h - br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+  ctx.lineTo(x + bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+  ctx.lineTo(x, y + tl);
+  ctx.quadraticCurveTo(x, y, x + tl, y);
+  ctx.closePath();
 }
 
 // پهنای لازمِ جدول بر اساس جای ستون آخر + حاشیه کوچک
@@ -112,21 +122,27 @@ function tableWidth(){
   return (rightMostCol + TRI_W + GAP + NUM_W) - PAD + RIGHT_PAD;
 }
 
-// نوار عنوان جدول (بدون تیتر و متن قرمز)
+// نوار عنوان جدول (آبی آسمانی، گوشه‌های نرم، بدون تیتر)
 function header(ctx, updatedAt){
   const y = TABLE_Y - 32, x = PAD, w = tableWidth(), h = 32;
 
-  ctx.fillStyle = COLORS.headBg;
-  roundedRect(ctx, x, y, w, h, 8);
+  // خود باکس
+  ctx.fillStyle = COLORS.headBg; // مثلاً #cfe8ff
+  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 8, bl: 8 });
   ctx.fill();
 
+  // خطِ جداکننده‌ی خیلی کم‌رنگ در پایین باکس
+  ctx.fillStyle = "#b7cff5"; // یک تون تیره‌تر از headBg
+  ctx.fillRect(x + 1, y + h - 1, w - 2, 1);
+
+  // برچسب ستون‌ها
   ctx.fillStyle = COLORS.headText;
   ctx.font = "700 14px system-ui, Arial";
   ctx.textAlign = "left";
-  ctx.fillText("Code",     COL.code, y+22);
-  ctx.fillText("Currency", COL.curr, y+22);
-  ctx.fillText("Buy",      COL.buy,  y+22);   // Buy نزدیک‌تر به Currency
-  ctx.fillText("Sell",     COL.sell, y+22);
+  ctx.fillText("Code",     COL.code, y + 22);
+  ctx.fillText("Currency", COL.curr, y + 22);
+  ctx.fillText("Buy",      COL.buy,  y + 22);
+  ctx.fillText("Sell",     COL.sell, y + 22);
 }
 
 // مثلث روند: +۱٪ قرمزِ رو به بالا، −۱٪ آبیِ رو به پایین، غیر از این سبزِ رو به عدد
