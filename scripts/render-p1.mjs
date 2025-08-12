@@ -104,10 +104,14 @@ function header(ctx, updatedAt){
   const y = TABLE_Y - 32, x = PAD, w = W - PAD*2, h = 32;
   ctx.fillStyle = COLORS.headBg; roundedRect(ctx, x, y, w, h, 8); ctx.fill();
   ctx.fillStyle = COLORS.headText; ctx.font = "700 14px system-ui, Arial";
+
+  // Code/Currency چپ‌چین
   ctx.textAlign = "left";
   ctx.fillText("Code",     COL.code, y+22);
   ctx.fillText("Currency", COL.curr, y+22);
-  ctx.textAlign = "right";
+
+  // Sell/Buy هم چپ‌چین (برای هماهنگی با اعداد چپ‌چین)
+  ctx.textAlign = "left";
   ctx.fillText("Sell",     COL.sell, y+22);
   ctx.fillText("Buy",      COL.buy,  y+22);
 }
@@ -129,16 +133,15 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// عدد را با مثلث در چپِ عدد (بدون هم‌پوشانی) رسم می‌کند
+// عدد را با مثلث در چپِ عدد (بدون هم‌پوشانی) رسم می‌کند — همه چیز چپ‌چین
 function drawValueWithTriangle(ctx, value, colX, baseY, dir){
   const txt = fmt(value);
-  ctx.textAlign = "right";
+  ctx.textAlign = "left";
   ctx.font = "600 18px system-ui, Arial";
   ctx.fillStyle = COLORS.text;
 
-  const w = ctx.measureText(txt).width;  // پهنای متن عدد
   const triW = 10, gap = 8;
-  const triX = colX - w - gap - triW;    // مثلث همیشه چپِ عدد
+  const triX = colX - (triW + gap);      // مثلث کمی چپ‌تر از شروع عدد
   trendArrow(ctx, dir, triX, baseY + 12);
   ctx.fillText(txt, colX, baseY + 27);
 }
