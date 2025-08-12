@@ -1,0 +1,5 @@
+{
+  "USD_TMN": { "anchor": 90000, "offset_pct": 0.0 },
+  "USDT_TMN": { "anchor": 90000, "offset_pct": 0.0 },
+  "symbols_fx": ["EUR","GBP","TRY","JPY","CNY","GEL","AMD"]
+}
