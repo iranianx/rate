@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-08-12T17:21:27.909Z",
+  "updated_at": "2025-08-12T17:37:47.213Z",
   "delta": {
     "usd_pct": 2.439,
     "usdt_pct": 2.678,
@@ -14,13 +14,13 @@
   },
   "spot": {
     "USD_TMN": 92195,
-    "EUR_TMN": 105000,
-    "GBP_TMN": 125000,
-    "TRY_TMN": 3000,
-    "JPY_TMN": 600,
-    "CNY_TMN": 13000,
-    "GEL_TMN": 35000,
-    "AMD_TMN": 240,
+    "EUR_TMN": 107002,
+    "GBP_TMN": 124117,
+    "TRY_TMN": 2263,
+    "JPY_TMN": 621,
+    "CNY_TMN": 12827,
+    "GEL_TMN": 92195,
+    "AMD_TMN": 92195,
     "USDT_TMN": 92410
   },
   "sources": {
