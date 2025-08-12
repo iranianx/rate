@@ -1,18 +1,13 @@
 name: Build p1.png from rates.json
 on:
-  push:
-    paths:
-      - "docs/rates.json"
-      - "scripts/render-p1.mjs"
-  workflow_dispatch:
-
+  workflow_dispatch:   # فقط اجرا دستی
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # وابستگی‌های node-canvas
+      # نصب پیش‌نیازهای node-canvas
       - name: Install system deps
         run: |
           sudo apt-get update
