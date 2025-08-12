@@ -1,3 +1,4 @@
+// ===== بخش ۱: ایمپورت، مسیرها، ابزار فایل، پیکربندی ظاهر، ابعاد =====
 import fs from "fs";
 import path from "path";
 import { createCanvas } from "canvas";
@@ -12,187 +13,119 @@ const PREV_SPOT_PATH = path.join(STATE, "prev_spot.json");
 
 fs.mkdirSync(STATE, { recursive: true });
 
-// ---------- پیکربندی نمایشی (مطابق عکس) ----------
+// --- ابزارهای فایل (لازم برای main) ---
+function readJSON(p, fb){
+  if (!fs.existsSync(p)) return fb;
+  try { return JSON.parse(fs.readFileSync(p, "utf-8")); }
+  catch { return fb; }
+}
+function writeJSON(p, o){
+  fs.writeFileSync(p, JSON.stringify(o, null, 2));
+}
+
+// --- فهرست و برچسب ارزها ---
 const ORDER = ["USD_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
 const LABELS = {
   USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
   JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
 };
+
+// --- پرچم‌ها (ایموجی رنگی) ---
 const FLAGS = {
   USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷",
   JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲"
 };
+
+// --- پالت رنگ مطابق تصویری که فرستادی ---
 const COLORS = {
-  text: "#22303a",
-  link: "#1976d2",
-  headBg: "#e9eef5",
-  headText: "#2c3e50",
-  rowBg: "#ffffff",
-  rowDivider: "#d9e2ef",
-  up: "#2e7d32",
-  down: "#c62828",
-  flat: "#1e88e5",
-  caret: "#1e88e5"
+  text: "#22303a",     // متن و اعداد
+  link: "#1976d2",     // کُد ارز (USD…)
+  headBg: "#e9eef5",   // پس‌زمینه سرستون
+  headText: "#2c3e50", // متن سرستون
+  rowBg: "#ffffff",    // زمینه ردیف‌ها
+  rowDivider: "#d9e2ef", // خط جداکننده
+  up: "#2e7d32",       // فلش افزایش
+  down: "#c62828",     // فلش کاهش
+  flat: "#1e88e5",     // فلش بدون تغییر
+  caret: "#1e88e5"     // مثلث کوچک قبل از اعداد
 };
 
-// خاموش بودن لاین رنگی کنار هر ردیف (برای شباهت کامل به عکس)
+// --- کنترل «لاین» کناری ردیف‌ها (در تصویر خاموش است) ---
 const THEME = { enableLeftStripe: false };
-// اگر بعداً روشن کردی، از این پالت استفاده می‌شود
 const STRIPE = {
   USD: "#3b82f6", EUR: "#1e40af", GBP: "#ef4444", TRY: "#dc2626",
   JPY: "#f43f5e", CNY: "#b91c1c", GEL: "#7c3aed", AMD: "#f97316"
 };
 
-// ---------- ابعاد و جای ستون‌ها ----------
+// --- ابعاد و جای ستون‌ها ---
 const W=1100, PAD=16, HEADER_TOP=12, TITLE_H=36, SUB_H=20;
 const TABLE_Y = HEADER_TOP + TITLE_H + SUB_H + 12;
 const ROW_H = 44, ROW_GAP=2;
 const COL = {
-  flag: PAD+6,
-  code: PAD+46,
-  curr: PAD+110,
-  sell: PAD+700,
-  buy : PAD+900
+  flag: PAD+6,    // پرچم
+  code: PAD+46,   // کُد ارز
+  curr: PAD+110,  // نام ارز
+  sell: PAD+700,  // ستون Sell
+  buy : PAD+900   // ستون Buy
 };
 
-// ---------- کمکی‌های اعداد ----------
+// --- کمکی‌های عدد و تشخیص جهت ---
 function fmt(n){ const v=Number(n); return isFinite(v)?v.toLocaleString("en-US"):"-"; }
-function signDir(cur, prev){ if(!isFinite(prev)) return 0; const d=cur-prev; return Math.abs(d)<1?0:(d>0?1:-1); }
-
-// ---------- رسم ----------
-function roundedRect(ctx,x,y,w,h,r=8){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
-  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
-  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
-  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
+function signDir(cur, prev){
+  if(!isFinite(prev)) return 0;
+  const d=cur-prev;
+  return Math.abs(d)<1 ? 0 : (d>0?1:-1);
 }
+// ===== پایان بخش ۱ =====
 
-function header(ctx, updatedAt){
-  ctx.fillStyle="#000"; ctx.font="700 26px system-ui, Arial";
-  ctx.fillText("IranianX — Fiat", PAD, HEADER_TOP + 26);
-
-  ctx.fillStyle="#c00"; ctx.font="700 14px system-ui, Arial";
-  const ts = updatedAt? new Date(updatedAt).toLocaleString() : new Date().toLocaleString();
-  ctx.fillText("Updated: "+ts, PAD, HEADER_TOP + 26 + 18);
-
-  // نوار عنوان جدول
-  const y = TABLE_Y - 32, x = PAD, w = W-PAD*2, h = 32;
-  ctx.fillStyle=COLORS.headBg; roundedRect(ctx,x,y,w,h,8); ctx.fill();
-  ctx.fillStyle=COLORS.headText; ctx.font="700 14px system-ui, Arial";
-  ctx.textAlign="left";
-  ctx.fillText("Code", COL.code, y+22);
-  ctx.fillText("Currency", COL.curr, y+22);
-  ctx.textAlign="right";
-  ctx.fillText("Sell", COL.sell, y+22);
-  ctx.fillText("Buy",  COL.buy,  y+22);
-}
-
-function trendArrow(ctx, dir, x, y){
-  if(dir>0) ctx.fillStyle=COLORS.up;
-  else if(dir<0) ctx.fillStyle=COLORS.down;
-  else ctx.fillStyle=COLORS.flat;
-
-  ctx.beginPath();
-  if(dir>0){ ctx.moveTo(x, y+10); ctx.lineTo(x+10,y+10); ctx.lineTo(x+5,y); }
-  else if(dir<0){ ctx.moveTo(x, y); ctx.lineTo(x+10,y); ctx.lineTo(x+5,y+10); }
-  else { ctx.moveTo(x, y); ctx.lineTo(x+10,y+5); ctx.lineTo(x, y+10); }
-  ctx.closePath(); ctx.fill();
-}
-
-function caret(ctx, x, y){
-  ctx.fillStyle = COLORS.caret;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x+8, y+5);
-  ctx.lineTo(x, y+10);
-  ctx.closePath();
-  ctx.fill();
-}
-
-function row(ctx,i,{sym,label,sell,buy,dir}){
-  const y = TABLE_Y + i*(ROW_H+ROW_GAP);
-  const x = PAD, w = W-PAD*2, h = ROW_H;
-
-  // زمینه ردیف سفید و خط جداکننده کم‌رنگ (مثل عکس)
-  ctx.fillStyle=COLORS.rowBg; roundedRect(ctx,x,y,w,h,10); ctx.fill();
-  ctx.strokeStyle = COLORS.rowDivider; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x+10, y+h); ctx.lineTo(x+w-10, y+h); ctx.stroke();
-
-  // لاین رنگی کناری (خاموش مگر اینکه enableLeftStripe=true)
-  if (THEME.enableLeftStripe) {
-    const stripe = STRIPE[sym] || "#93c5fd";
-    ctx.fillStyle = stripe;
-    ctx.fillRect(x+1, y+2, 6, h-4);
-  }
-
-  // پرچم
-  ctx.textAlign="left"; ctx.font="700 18px system-ui, Arial"; ctx.fillStyle=COLORS.text;
-  const flag = FLAGS[sym] || "";
-  if(flag){
-    ctx.font="700 20px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, Arial";
-    ctx.fillText(flag, COL.flag, y+27);
-  }
-
-  // Code (آبی)
-  ctx.font="700 16px system-ui, Arial"; ctx.fillStyle=COLORS.link;
-  ctx.fillText(sym, COL.code, y+27);
-
-  // Currency
-  ctx.font="600 16px system-ui, Arial"; ctx.fillStyle=COLORS.text;
-  ctx.fillText(label, COL.curr, y+27);
-
-  // Sell + caret + فلش
-  ctx.textAlign="right"; ctx.font="600 18px system-ui, Arial"; ctx.fillStyle=COLORS.text;
-  caret(ctx, COL.sell-46, y+12);
-  ctx.fillText(fmt(sell), COL.sell, y+27);
-  trendArrow(ctx, dir, COL.sell-26, y+12);
-
-  // Buy + caret
-  ctx.fillStyle=COLORS.text;
-  caret(ctx, COL.buy-46, y+12);
-  ctx.fillText(fmt(buy), COL.buy, y+27);
-}
-
+// ===== بخش ۲: ساخت ردیف‌ها، بوم، رندر، خروجی =====
 async function main(){
-  const rates = readJSON(RATES_PATH, null); if(!rates) throw new Error("docs/rates.json not found");
+  // ورودی‌ها
+  const rates = readJSON(RATES_PATH, null);
+  if (!rates) throw new Error("docs/rates.json not found");
   const base  = readJSON(BASELINE_PATH, {});
   const prev  = readJSON(PREV_SPOT_PATH, {});
   const spreadPct = Number(base.spread_pct ?? 0.6);
 
-  // ردیف‌ها
-  const rows=[];
-  for(const code of ORDER){
+  // ردیف‌ها (فقط ارزی که در rates.spot موجود است)
+  const rows = [];
+  for (const code of ORDER){
     const sell = rates.spot?.[code];
-    if(sell==null) continue;
+    if (sell == null) continue;
     const buy = Math.round(sell * (1 - spreadPct/100));
     const sym = code.replace("_TMN","");
-    const dir = signDir(sell, prev[code]);
-    rows.push({sym, label: LABELS[sym]||sym, sell, buy, dir, code});
+    const dir = signDir(sell, prev[code]); // جهت برای فلش‌ها (هم Sell هم Buy)
+    rows.push({ sym, label: LABELS[sym] || sym, sell, buy, dir, code });
   }
 
+  // بوم
   const H = TABLE_Y + rows.length*(ROW_H+ROW_GAP) + PAD + 12;
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
 
-  // پس‌زمینه سفید
-  ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+  // پس‌زمینه
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
 
-  // هدر
+  // هدر جدول (مطابق پالت بخش ۱)
   header(ctx, rates.updated_at);
 
-  // ردیف‌ها
-  rows.forEach((r,i)=>row(ctx,i,r));
+  // بدنه جدول
+  rows.forEach((r,i)=> row(ctx, i, r));
 
-  // فوتر
-  ctx.textAlign="left"; ctx.fillStyle="#9aa0a6"; ctx.font="400 12px system-ui, Arial";
-  ctx.fillText("IranianX.com • © "+new Date().getFullYear(), PAD, H-8);
+  // فوتر کم‌رنگ
+  ctx.textAlign="left";
+  ctx.fillStyle="#9aa0a6";
+  ctx.font="400 12px system-ui, Arial";
+  ctx.fillText("IranianX.com • © " + new Date().getFullYear(), PAD, H-8);
 
-  // خروجی
+  // خروجی + ذخیره‌ی prev برای جهت حرکت بعدی
   fs.writeFileSync(OUT, canvas.toBuffer("image/png"));
-  const nextPrev = {...prev}; rows.forEach(r=>{ nextPrev[r.code]=r.sell; });
+  const nextPrev = { ...prev };
+  rows.forEach(r => { nextPrev[r.code] = r.sell; });
   writeJSON(PREV_SPOT_PATH, nextPrev);
+
   console.log("Wrote", OUT);
 }
 
-main().catch(e=>{ console.error(e); process.exit(1); });
+main().catch(e => { console.error(e); process.exit(1); });
