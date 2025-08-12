@@ -1,15 +1,70 @@
 {
-  "updated_at": "2025-08-12T13:20:00Z",
-  "delta": { "usd_pct": 0.0, "usdt_pct": 0.0, "quality": { "usd": { "active": 0 }, "usdt": { "active": 0 } } },
+  "updated_at": "2025-08-12T17:21:27.909Z",
+  "delta": {
+    "usd_pct": 2.439,
+    "usdt_pct": 2.678,
+    "quality": {
+      "usd": {
+        "active": 4
+      },
+      "usdt": {
+        "active": 2
+      }
+    }
+  },
   "spot": {
-    "USD_TMN": 93000,
+    "USD_TMN": 92195,
     "EUR_TMN": 105000,
     "GBP_TMN": 125000,
     "TRY_TMN": 3000,
     "JPY_TMN": 600,
     "CNY_TMN": 13000,
     "GEL_TMN": 35000,
-    "AMD_TMN": 240
+    "AMD_TMN": 240,
+    "USDT_TMN": 92410
   },
-  "sources": {}
+  "sources": {
+    "usd_used": [
+      {
+        "source": "Herat_Tomen",
+        "val": 92380,
+        "delta": 2.644,
+        "w": 1
+      },
+      {
+        "source": "Dollar_Tehran3bze",
+        "val": 92700,
+        "delta": 3,
+        "w": 1
+      },
+      {
+        "source": "Dollar_Sulaymaniyah",
+        "val": 91000,
+        "delta": 1.111,
+        "w": 1
+      },
+      {
+        "source": "Bonbast_USD",
+        "val": 92700,
+        "delta": 3,
+        "w": 1
+      }
+    ],
+    "usd_drop": [],
+    "usdt_used": [
+      {
+        "source": "AbanTetherPrice",
+        "val": 92570,
+        "delta": 2.856,
+        "w": 1
+      },
+      {
+        "source": "TetherLand",
+        "val": 92250,
+        "delta": 2.5,
+        "w": 1
+      }
+    ],
+    "usdt_drop": []
+  }
 }
