@@ -6,11 +6,20 @@
     "USDT_TMN": 95000,
     "EUR_TMN": 105000,
     "GBP_TMN": 125000,
+    "CAD_TMN": 67000,
+    "AUD_TMN": 60000,
+    "RUB_TMN": 1160,
+    "AED_TMN": 25000,
+    "KWD_TMN": 300000,
+    "IQD_TMN": 70,
+    "SAR_TMN": 24000,
+    "AZN_TMN": 55000,
+    "AMD_TMN": 240,
     "TRY_TMN": 3000,
-    "JPY_TMN": 6000,
+    "JPY_TMN": 600,
     "CNY_TMN": 13000,
     "GEL_TMN": 35000,
-    "AMD_TMN": 240
+    "AFN_TMN": 1300
   },
   "sources": {}
 }
