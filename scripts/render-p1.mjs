@@ -13,6 +13,16 @@ const PREV_SPOT_PATH = path.join(STATE, "prev_spot.json");
 
 fs.mkdirSync(STATE, { recursive: true });
 
+// --- ابزارهای فایل (لازم برای main) ---
+function readJSON(p, fb){
+  if (!fs.existsSync(p)) return fb;
+  try { return JSON.parse(fs.readFileSync(p, "utf-8")); }
+  catch { return fb; }
+}
+function writeJSON(p, o){
+  fs.writeFileSync(p, JSON.stringify(o, null, 2));
+}
+
 // ---------- پیکربندی نمایشی ----------
 const ORDER = ["USD_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
 const LABELS = {
@@ -28,11 +38,11 @@ const COLORS = {
   headText: "#2c3e50",
   rowBg: "#ffffff",
   rowDivider: "#d9e2ef",
-  // منطق تازه‌ی مثلث‌ها: +۱٪ قرمز↑ ، −۱٪ آبی↓ ، مابقی سبز▶
+  // منطق مثلث‌ها: +۱٪ قرمز▲ ، −۱٪ آبی▼ ، مابقی سبز▶
   up:   "#c62828", // قرمز
   down: "#1e88e5", // آبی
   flat: "#2e7d32", // سبز
-  // caret دیگر استفاده نمی‌شود (می‌توانی نگه‌داری یا حذف کنی)
+  // caret دیگر استفاده نمی‌شود؛ می‌تونی حذفش کنی
   caret: "#1e88e5"
 };
 
@@ -56,9 +66,9 @@ function percentDir(cur, prev, thresholdPct = 1){
   const c = Number(cur), p = Number(prev);
   if (!isFinite(c) || !isFinite(p) || p === 0) return 0;
   const pct = ((c - p) / p) * 100;
-  if (pct >=  thresholdPct) return 1;
-  if (pct <= -thresholdPct) return -1;
-  return 0;
+  if (pct >=  thresholdPct) return 1;   // +1% یا بیشتر ⇒ قرمز ▲
+  if (pct <= -thresholdPct) return -1;  // −1% یا کمتر ⇒ آبی ▼
+  return 0;                              // بین این دو ⇒ سبز ▶
 }
 // ===== پایان بخش ۱ =====
 
