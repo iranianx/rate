@@ -102,23 +102,31 @@ function roundedRect(ctx,x,y,w,h,r=8){
   ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y); ctx.closePath();
 }
 
-// نوار عنوان جدول (بدون تیتر و بدون متن قرمز)
+// پهنای لازمِ جدول بر اساس جای ستون آخر + حاشیه کوچک
+function tableWidth(){
+  const NUM_W = 96;   // برآورد پهنای عدد ۶رقمی با ویرگول
+  const TRI_W = 10;   // پهنای مثلث
+  const GAP   = 6;    // فاصله‌ی مثلث تا عدد (باید با drawValueWithTriangle یکی باشد)
+  const RIGHT_PAD = 20;
+  const rightMostCol = Math.max(COL.buy, COL.sell);
+  return (rightMostCol + TRI_W + GAP + NUM_W) - PAD + RIGHT_PAD;
+}
+
+// نوار عنوان جدول (بدون تیتر و متن قرمز)
 function header(ctx, updatedAt){
   const y = TABLE_Y - 32, x = PAD, w = tableWidth(), h = 32;
 
-  // پس‌زمینه‌ی آبیِ روشنِ سرستون
   ctx.fillStyle = COLORS.headBg;
   roundedRect(ctx, x, y, w, h, 8);
   ctx.fill();
 
-  // برچسب‌ها
   ctx.fillStyle = COLORS.headText;
   ctx.font = "700 14px system-ui, Arial";
   ctx.textAlign = "left";
   ctx.fillText("Code",     COL.code, y+22);
   ctx.fillText("Currency", COL.curr, y+22);
+  ctx.fillText("Buy",      COL.buy,  y+22);   // Buy نزدیک‌تر به Currency
   ctx.fillText("Sell",     COL.sell, y+22);
-  ctx.fillText("Buy",      COL.buy,  y+22);
 }
 
 // مثلث روند: +۱٪ قرمزِ رو به بالا، −۱٪ آبیِ رو به پایین، غیر از این سبزِ رو به عدد
@@ -138,21 +146,21 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// عدد را چپ‌چین می‌نویسد و مثلث را سمت چپ عدد می‌گذارد؛ رنگ عدد همیشه مشکی/تیره
+// عدد را چپ‌چین می‌نویسد و مثلث را چپِ عدد می‌گذارد؛ رنگ عدد تیره
 function drawValueWithTriangle(ctx, value, colX, baseY, dir){
   const txt = fmt(value);
 
   // مثلث
-  const triW = 10, gap = 8;
-  const triX = colX - (triW + gap);      // مثلث کمی چپ‌تر از شروع عدد
+  const triW = 10, gap = 6;           // حتماً با tableWidth هماهنگ باشد
+  const triX = colX - (triW + gap);
   ctx.save();
   trendArrow(ctx, dir, triX, baseY + 12);
   ctx.restore();
 
-  // عدد (مشکی/تیره)
+  // عدد
   ctx.textAlign = "left";
   ctx.font = "600 18px system-ui, Arial";
-  ctx.fillStyle = COLORS.text; // #22303a — اگر می‌خواهی کاملاً مشکی باشد: "#000"
+  ctx.fillStyle = COLORS.text;        // اگر خواستی: "#000"
   ctx.fillText(txt, colX, baseY + 27);
 }
 // ===== پایان بخش 2 =====
