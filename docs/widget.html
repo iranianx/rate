@@ -1,0 +1,24 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IranianX Rate</title>
+<style>
+  body{font:15px/1.4 system-ui,Arial;margin:0;padding:12px;color:#1f2a39}
+  .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
+  .pair{font-weight:600}.time{margin-top:8px;font-size:12px;opacity:.6}
+</style>
+<div id="list"></div><div class="time" id="time"></div>
+<script>
+async function load(){
+  const r = await fetch("./rate.json",{cache:"no-store"});
+  const d = await r.json();
+  const order = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
+  const L = document.getElementById("list"); L.innerHTML="";
+  for(const k of order){
+    if(!(k in d.spot)) continue;
+    const row=document.createElement("div"); row.className="row";
+    row.innerHTML=`<div class="pair">${k}</div><div>${d.spot[k].toLocaleString()}</div>`;
+    L.appendChild(row);
+  }
+  document.getElementById("time").textContent = "Updated: "+new Date(d.updated_at).toLocaleString();
+}
+load(); setInterval(load,60_000);
+</script>
