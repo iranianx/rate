@@ -1,24 +1,47 @@
-<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>IranianX Rate</title>
 <style>
   body{font:15px/1.4 system-ui,Arial;margin:0;padding:12px;color:#1f2a39}
-  .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
-  .pair{font-weight:600}.time{margin-top:8px;font-size:12px;opacity:.6}
+  .row{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #eee}
+  .pair{font-weight:600}
+  .time{margin-top:8px;font-size:12px;opacity:.6}
 </style>
-<div id="list"></div><div class="time" id="time"></div>
+
+<section id="list" aria-live="polite"></section>
+<p class="time" id="time"></p>
+
 <script>
 async function load(){
-  const r = await fetch("./rates.json",{cache:"no-store"});
-  const d = await r.json();
-  const order = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","CAD_TMN","AUD_TMN","RUB_TMN","AED_TMN","KWD_TMN","IQD_TMN","SAR_TMN","TRY_TMN","GEL_TMN","AZN_TMN","AMD_TMN","JPY_TMN","CNY_TMN","AFN_TMN"];
-  const L = document.getElementById("list"); L.innerHTML="";
-  for(const k of order){
-    if(!(k in d.spot)) continue;
-    const row=document.createElement("div"); row.className="row";
-    row.innerHTML=`<div class="pair">${k}</div><div>${d.spot[k].toLocaleString()}</div>`;
+  const res = await fetch("./rates.json", { cache: "no-store" });
+  const d = await res.json();
+
+  const L = document.getElementById("list");
+  L.innerHTML = "";
+
+  // ترتیب پیشنهادی؛ بقیه‌ی ارزها در ادامه به‌صورت خودکار می‌آیند
+  const preferred = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
+
+  const keys = Object.keys(d.spot || {});
+  const ordered = [
+    ...preferred.filter(k => keys.includes(k)),
+    ...keys.filter(k => !preferred.includes(k)).sort()
+  ];
+
+  for (const k of ordered){
+    const v = d.spot[k];
+    if (v == null) continue;
+    const row = document.createElement("article");
+    row.className = "row";
+    row.setAttribute("role", "article");
+    row.innerHTML = `<div class="pair">${k}</div><div>${Number(v).toLocaleString()}</div>`;
     L.appendChild(row);
   }
-  document.getElementById("time").textContent = "Updated: "+new Date(d.updated_at).toLocaleString();
+
+  const t = d.updated_at ? new Date(d.updated_at) : new Date();
+  document.getElementById("time").textContent = "Updated: " + t.toLocaleString();
 }
-load(); setInterval(load,60_000);
+load();
+setInterval(load, 60_000);
 </script>
