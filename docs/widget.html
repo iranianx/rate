@@ -8,7 +8,7 @@
 <div id="list"></div><div class="time" id="time"></div>
 <script>
 async function load(){
-  const r = await fetch("./rate.json",{cache:"no-store"});
+  const r = await fetch("./rates.json",{cache:"no-store"});
   const d = await r.json();
   const order = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
   const L = document.getElementById("list"); L.innerHTML="";
