@@ -1,5 +1,16 @@
 {
-  "USD_TMN": { "anchor": 90000, "offset_pct": 0.0 },
-  "USDT_TMN": { "anchor": 90000, "offset_pct": 0.0 },
-  "symbols_fx": ["EUR","GBP","TRY","JPY","CNY","GEL","AMD"]
+  "updated_at": "1970-01-01T00:00:00Z",
+  "delta": { "usd_pct": 0.0, "usdt_pct": 0.0, "quality": { "usd": {"active":0}, "usdt":{"active":0} } },
+  "spot": {
+    "USD_TMN": 93000,
+    "USDT_TMN": 95000,
+    "EUR_TMN": 105000,
+    "GBP_TMN": 125000,
+    "TRY_TMN": 3000,
+    "JPY_TMN": 6000,
+    "CNY_TMN": 13000,
+    "GEL_TMN": 35000,
+    "AMD_TMN": 240
+  },
+  "sources": {}
 }
