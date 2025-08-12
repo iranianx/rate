@@ -168,13 +168,14 @@ async function main(){
 
     const buy = Math.round(sell * (1 - spreadPct/100));
     const sym = code.replace("_TMN","");
-    // منطق جهت مثلث بر اساس تغییر درصدی نسبت به prev و آستانه ۱٪
+
+    // منطق جهت مثلث بر اساس تغییر درصدی نسبت به مقدار قبلی و آستانه ۱٪
     const dir = percentDir(sell, prev[code], 1);
 
     rows.push({ sym, label: LABELS[sym] || sym, sell, buy, dir, code });
   }
 
-  // اگر هیچ ردیفی نبود، خطا بده تا متوجه ورودی شویم
+  // اگر هیچ ردیفی نبود، ورودی را بررسی کن
   if (rows.length === 0) throw new Error("No rows to render (check ORDER or rates.spot)");
 
   // بوم
@@ -186,16 +187,16 @@ async function main(){
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, W, H);
 
-  // هدر جدول (مطابق پالت بخش ۱)
+  // هدر جدول
   header(ctx, rates.updated_at);
 
   // بدنه جدول
-  rows.forEach((r,i)=> row(ctx, i, r));
+  rows.forEach((r,i) => row(ctx, i, r));
 
   // فوتر کم‌رنگ
-  ctx.textAlign="left";
-  ctx.fillStyle="#9aa0a6";
-  ctx.font="400 12px system-ui, Arial";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#9aa0a6";
+  ctx.font = "400 12px system-ui, Arial";
   ctx.fillText("IranianX.com • © " + new Date().getFullYear(), PAD, H-8);
 
   // خروجی + ذخیره‌ی prev برای جهت حرکت بعدی
