@@ -1,19 +1,25 @@
 // ===== بخش ۱ =====
 import fs from "fs";
 import path from "path";
-import { createCanvas } from "canvas";
+import { createCanvas, loadImage } from "canvas";
 
 const ROOT = process.cwd();
 const DOCS = path.join(ROOT, "docs");
 const STATE = path.join(ROOT, "state");
-const RATES_PATH = path.join(DOCS, "rates.json");
-const OUT = path.join(DOCS, "p1.png");
-const BASELINE_PATH = path.join(ROOT, "baseline.json");
+
+// ورودی/خروجی‌ها
+const RATES_PATH     = path.join(DOCS, "rates.json");
+const OUT            = path.join(DOCS, "p1.png");
+const BASELINE_PATH  = path.join(ROOT, "baseline.json");
 const PREV_SPOT_PATH = path.join(STATE, "prev_spot.json");
 
-fs.mkdirSync(STATE, { recursive: true });
+// پوشه‌ی پرچم‌های رنگی (PNG). نام فایل‌ها: USD.png, EUR.png, ...
+const FLAGS_DIR = path.join(DOCS, "flags");
 
-// --- ابزارهای فایل (لازم برای main) ---
+fs.mkdirSync(STATE, { recursive: true });
+fs.mkdirSync(FLAGS_DIR, { recursive: true });
+
+// --- ابزارهای فایل ---
 function readJSON(p, fb){
   if (!fs.existsSync(p)) return fb;
   try { return JSON.parse(fs.readFileSync(p, "utf-8")); }
@@ -29,6 +35,7 @@ const LABELS = {
   USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
   JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
 };
+// ایموجی‌ها فقط «fallback» هستند؛ اگر PNG بود همان را استفاده می‌کنیم
 const FLAGS = { USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷", JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲" };
 
 const COLORS = {
@@ -42,7 +49,7 @@ const COLORS = {
   up:   "#c62828", // قرمز
   down: "#1e88e5", // آبی
   flat: "#2e7d32", // سبز
-  // caret دیگر استفاده نمی‌شود؛ می‌تونی حذفش کنی
+  // caret فعلاً استفاده نمی‌شود
   caret: "#1e88e5"
 };
 
@@ -72,7 +79,7 @@ function percentDir(cur, prev, thresholdPct = 1){
 }
 // ===== پایان بخش ۱ =====
 
-// ===== بخش 2: توابع رسم =====
+// ===== بخش 2: توابع پایه‌ی رسم =====
 
 // مستطیل با گوشه‌گرد برای ردیف‌ها و هدر
 function roundedRect(ctx,x,y,w,h,r=8){
@@ -85,7 +92,7 @@ function roundedRect(ctx,x,y,w,h,r=8){
 
 // نوار عنوان جدول + تیتر/زمان
 function header(ctx, updatedAt){
-  // تیتر و زمان (می‌تونی این دو خط را حذف کنی اگر نخواستی)
+  // تیتر و زمان (درصورت نیاز می‌توانی حذفشان کنی)
   ctx.fillStyle="#000"; ctx.font="700 26px system-ui, Arial";
   ctx.fillText("IranianX — Fiat", PAD, HEADER_TOP + 26);
 
@@ -107,9 +114,9 @@ function header(ctx, updatedAt){
 
 // مثلث روند: +۱٪ قرمزِ رو به بالا، −۱٪ آبیِ رو به پایین، غیر از این سبزِ رو به عدد
 function trendArrow(ctx, dir, x, y){
-  if (dir > 0) ctx.fillStyle = COLORS.up;      // قرمز
+  if (dir > 0) ctx.fillStyle = COLORS.up;        // قرمز
   else if (dir < 0) ctx.fillStyle = COLORS.down; // آبی
-  else ctx.fillStyle = COLORS.flat;            // سبز
+  else ctx.fillStyle = COLORS.flat;              // سبز
 
   ctx.beginPath();
   if (dir > 0) {            // ▲
@@ -122,8 +129,22 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// یک ردیف جدول با پرچم رنگی، کُد آبی، نام ارز و اعداد + یک مثلث
-function row(ctx, i, { sym, label, sell, buy, dir }){
+// عدد را با مثلث در چپِ عدد (بدون هم‌پوشانی) رسم می‌کند
+function drawValueWithTriangle(ctx, value, colX, baseY, dir){
+  const txt = fmt(value);
+  ctx.textAlign = "right";
+  ctx.font = "600 18px system-ui, Arial";
+  ctx.fillStyle = COLORS.text;
+
+  const w = ctx.measureText(txt).width;  // پهنای متن عدد
+  const triW = 10, gap = 8;
+  const triX = colX - w - gap - triW;    // مثلث همیشه چپِ عدد
+  trendArrow(ctx, dir, triX, baseY + 12);
+  ctx.fillText(txt, colX, baseY + 27);
+}
+// ===== پایان بخش 2 =====
+// ===== بخش 3: ردیف جدول =====
+function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   const y = TABLE_Y + i*(ROW_H+ROW_GAP);
   const x = PAD, w = W - PAD*2, h = ROW_H;
 
@@ -138,37 +159,46 @@ function row(ctx, i, { sym, label, sell, buy, dir }){
     ctx.fillStyle = stripe; ctx.fillRect(x+1, y+2, 6, h-4);
   }
 
-  // پرچم
-  ctx.textAlign = "left"; ctx.fillStyle = COLORS.text;
-  ctx.font = "700 20px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, Arial";
-  const flag = FLAGS[sym] || "";
-  if (flag) ctx.fillText(flag, COL.flag, y+27);
+  // پرچم: اگر PNG داده شده بود، همان؛ وگرنه ایموجی (fallback)
+  if (flagImg){
+    const fw = 24, fh = 16;
+    const fy = y + Math.round((h - fh)/2);
+    ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
+  } else {
+    ctx.textAlign = "left"; ctx.fillStyle = COLORS.text;
+    ctx.font = "700 20px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, Arial";
+    const flag = FLAGS[sym] || "";
+    if (flag) ctx.fillText(flag, COL.flag, y+27);
+  }
 
   // کُد ارز (آبی) و نام ارز
+  ctx.textAlign = "left";
   ctx.font = "700 16px system-ui, Arial"; ctx.fillStyle = COLORS.link;
   ctx.fillText(sym, COL.code, y+27);
 
   ctx.font = "600 16px system-ui, Arial"; ctx.fillStyle = COLORS.text;
   ctx.fillText(label, COL.curr, y+27);
 
-  // Sell: مثلث + عدد (فقط یک مثلث)
-  ctx.textAlign = "right"; ctx.font = "600 18px system-ui, Arial"; ctx.fillStyle = COLORS.text;
-  trendArrow(ctx, dir, COL.sell-26, y+12);
-  ctx.fillText(fmt(sell), COL.sell, y+27);
-
-  // Buy: همان جهت + عدد (بدون caret)
-  trendArrow(ctx, dir, COL.buy-26, y+12);
-  ctx.fillText(fmt(buy), COL.buy, y+27);
+  // Sell و Buy: یک مثلث کنار عدد (بدون هم‌پوشانی)
+  drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
+  drawValueWithTriangle(ctx, buy,  COL.buy,  y, dir);
 }
+// ===== پایان بخش 3 =====
 
-// ===== بخش 3: ساخت ردیف‌ها، بوم، رندر، خروجی =====
+// ===== بخش 4: ساخت ردیف‌ها، بوم، رندر، خروجی =====
 async function main(){
   // ورودی‌ها
   const rates = readJSON(RATES_PATH, null);
-  if (!rates || !rates.spot) throw new Error("docs/rates.json not found or malformed");
+  if (!rates || typeof rates !== "object" || !rates.spot) {
+    throw new Error("docs/rates.json not found or malformed");
+  }
   const base  = readJSON(BASELINE_PATH, {});
   const prev  = readJSON(PREV_SPOT_PATH, {});
-  const spreadPct = Number(base.spread_pct ?? 0.6);
+
+  // اسپرد معتبر (۰ تا ۱۰۰)، پیش‌فرض ۰.۶٪
+  let spreadPct = Number(base.spread_pct ?? 0.6);
+  if (!isFinite(spreadPct)) spreadPct = 0.6;
+  spreadPct = Math.max(0, Math.min(100, spreadPct));
 
   // ردیف‌ها (فقط ارزی که در rates.spot موجود است)
   const rows = [];
@@ -176,17 +206,33 @@ async function main(){
     const sell = rates.spot?.[code];
     if (sell == null) continue;
 
-    const buy = Math.round(sell * (1 - spreadPct/100));
-    const sym = code.replace("_TMN","");
+    const sym = code.replace("_TMN", "");
+    const buy = Math.max(0, Math.round(Number(sell) * (1 - spreadPct/100)));
 
-    // منطق جهت مثلث بر اساس تغییر درصدی نسبت به مقدار قبلی و آستانه ۱٪
+    // جهت مثلث بر اساس تغییر درصدی نسبت به مقدار قبلی و آستانه ۱٪
     const dir = percentDir(sell, prev[code], 1);
 
-    rows.push({ sym, label: LABELS[sym] || sym, sell, buy, dir, code });
+    rows.push({ sym, label: LABELS[sym] || sym, sell: Number(sell), buy, dir, code });
+  }
+  if (rows.length === 0) {
+    throw new Error("No rows to render (check ORDER or rates.spot)");
   }
 
-  // اگر هیچ ردیفی نبود، ورودی را بررسی کن
-  if (rows.length === 0) throw new Error("No rows to render (check ORDER or rates.spot)");
+  // پرچم‌ها را یک‌بار از docs/flags/ بارگذاری کن (USD.png, EUR.png, ...)
+  // اگر نبود، در row به‌صورت خودکار از ایموجی fallback استفاده می‌شود.
+  const flagEntries = await Promise.all(rows.map(async (r) => {
+    const fp = path.join(FLAGS_DIR, `${r.sym}.png`);
+    if (fs.existsSync(fp)) {
+      try {
+        const img = await loadImage(fp);
+        return [r.sym, img];
+      } catch {
+        return [r.sym, null];
+      }
+    }
+    return [r.sym, null];
+  }));
+  const flagImgs = Object.fromEntries(flagEntries);
 
   // بوم
   const H = TABLE_Y + rows.length*(ROW_H+ROW_GAP) + PAD + 12;
@@ -201,7 +247,7 @@ async function main(){
   header(ctx, rates.updated_at);
 
   // بدنه جدول
-  rows.forEach((r,i) => row(ctx, i, r));
+  rows.forEach((r,i) => row(ctx, i, { ...r, flagImg: flagImgs[r.sym] || null }));
 
   // فوتر کم‌رنگ
   ctx.textAlign = "left";
@@ -209,7 +255,7 @@ async function main(){
   ctx.font = "400 12px system-ui, Arial";
   ctx.fillText("IranianX.com • © " + new Date().getFullYear(), PAD, H-8);
 
-  // خروجی + ذخیره‌ی prev برای جهت حرکت بعدی
+  // خروجی + ذخیره prev برای نوبت بعد
   fs.writeFileSync(OUT, canvas.toBuffer("image/png"));
   const nextPrev = { ...prev };
   rows.forEach(r => { nextPrev[r.code] = r.sell; });
