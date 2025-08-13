@@ -62,9 +62,9 @@ const ROW_H = 44, ROW_GAP = 2;
 const COL = {
   flag: PAD + 6,
   code: PAD + 40,
-  curr: PAD + 130,
-  buy : PAD + 400,  // نزدیک‌تر شد
-  sell: PAD + 520   // کمی بعد از Buy
+  curr: PAD + 100,
+  buy : PAD + 300,  // نزدیک‌تر شد
+  sell: PAD + 400   // کمی بعد از Buy
 };
 
 // ---------- کمکی‌های اعداد ----------
