@@ -4,16 +4,13 @@
     "usd_pct": 2.439,
     "usdt_pct": 2.678,
     "quality": {
-      "usd": {
-        "active": 4
-      },
-      "usdt": {
-        "active": 2
-      }
+      "usd": { "active": 4 },
+      "usdt": { "active": 2 }
     }
   },
   "spot": {
     "USD_TMN": 92195,
+    "USDT_TMN": 92410,
     "EUR_TMN": 107002,
     "GBP_TMN": 124117,
     "TRY_TMN": 2263,
@@ -21,49 +18,28 @@
     "CNY_TMN": 12827,
     "GEL_TMN": 92195,
     "AMD_TMN": 92195,
-    "USDT_TMN": 92410
+
+    "CAD_TMN": 67000,
+    "AUD_TMN": 60000,
+    "RUB_TMN": 1160,
+    "AED_TMN": 25000,
+    "KWD_TMN": 300000,
+    "IQD_TMN": 70,
+    "SAR_TMN": 24000,
+    "AZN_TMN": 55000,
+    "AFN_TMN": 1300
   },
   "sources": {
     "usd_used": [
-      {
-        "source": "Herat_Tomen",
-        "val": 92380,
-        "delta": 2.644,
-        "w": 1
-      },
-      {
-        "source": "Dollar_Tehran3bze",
-        "val": 92700,
-        "delta": 3,
-        "w": 1
-      },
-      {
-        "source": "Dollar_Sulaymaniyah",
-        "val": 91000,
-        "delta": 1.111,
-        "w": 1
-      },
-      {
-        "source": "Bonbast_USD",
-        "val": 92700,
-        "delta": 3,
-        "w": 1
-      }
+      { "source": "Herat_Tomen", "val": 92380, "delta": 2.644, "w": 1 },
+      { "source": "Dollar_Tehran3bze", "val": 92700, "delta": 3, "w": 1 },
+      { "source": "Dollar_Sulaymaniyah", "val": 91000, "delta": 1.111, "w": 1 },
+      { "source": "Bonbast_USD", "val": 92700, "delta": 3, "w": 1 }
     ],
     "usd_drop": [],
     "usdt_used": [
-      {
-        "source": "AbanTetherPrice",
-        "val": 92570,
-        "delta": 2.856,
-        "w": 1
-      },
-      {
-        "source": "TetherLand",
-        "val": 92250,
-        "delta": 2.5,
-        "w": 1
-      }
+      { "source": "AbanTetherPrice", "val": 92570, "delta": 2.856, "w": 1 },
+      { "source": "TetherLand", "val": 92250, "delta": 2.5, "w": 1 }
     ],
     "usdt_drop": []
   }
