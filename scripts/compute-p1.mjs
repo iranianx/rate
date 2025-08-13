@@ -17,7 +17,6 @@ const RATES_PATH = path.join(DOCS, "rates.json");
 fs.mkdirSync(STATE_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-
 // [S2] Debug Output Setup — تنظیم خروجی تست در docs/debug/compute-report.json
 const DEBUG_DIR  = path.join(DOCS, "debug");
 const DEBUG_FILE = path.join(DEBUG_DIR, "compute-report.json");
@@ -28,7 +27,6 @@ function pick(obj, keys){
   for (const k of keys) if (k in obj) o[k] = obj[k];
   return o;
 }
-
 
 // [S3] Small Utils — readJSON, writeJSON, nowISO, roundInt
 function readJSON(p, fallback) {
@@ -71,8 +69,6 @@ function median(arr) {
   const m = Math.floor(n / 2);
   return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
-
-
 
 // [S5] Delta Combiner — فیلترها/وزن‌دهی منابع و به‌روزرسانی state/ewma.json
 // خروجی: { delta, used, removed, newState, details }
@@ -157,8 +153,6 @@ function computeCombinedDelta(kind, sources, ewmaState) {
   return { delta: comb, used, removed, newState, details };
 }
 
-
-
 // [S6] Baseline Apply Helper — اعمال delta روی anchor/offset
 function applyBaseline(deltaPct, { anchor, offset_pct = 0 }) {
   return roundInt(
@@ -167,16 +161,6 @@ function applyBaseline(deltaPct, { anchor, offset_pct = 0 }) {
     (1 + (offset_pct || 0) / 100)
   );
 }
-// [S6] Baseline Apply Helper — اعمال delta روی anchor/offset
-function applyBaseline(deltaPct, { anchor, offset_pct = 0 }) {
-  return roundInt(
-    anchor *
-    (1 + deltaPct / 100) *
-    (1 + (offset_pct || 0) / 100)
-  );
-}
-
-
 
 // [S7] FX Setup & Fetchers — گرفتن USD→X از APIها
 // اگر در baseline.symbols_fx تعریف نشده بود، این لیست پیش‌فرض استفاده می‌شود
@@ -207,8 +191,6 @@ async function getUsdRates(){
   const fallback = {}; for (const s of FX_SYMBOLS) fallback[s] = 1;
   return fallback;
 }
-
-
 
 // [S8] main(): compute & write — خواندن ورودی‌ها، محاسبات، ساخت spot و rates
 async function main(){
@@ -324,8 +306,6 @@ async function main(){
   console.log("OK • USD_TMN=%s, USDT_TMN=%s, FX done for: %s",
     USD_TMN, USDT_TMN, FX_SYMBOLS.join(","));
 }
-
-
 
 // [S9] Entrypoint — اجرای main() و مدیریت خطا
 main().catch(err => {
