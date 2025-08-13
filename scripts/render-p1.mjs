@@ -179,7 +179,7 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
 
   // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شده)
   if (flagImg){
-    const fw = 24, fh = 18; // جمع‌وجور شبیه نمونه
+    const fw = 28, fh = 24; // جمع‌وجور شبیه نمونه
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
   }
