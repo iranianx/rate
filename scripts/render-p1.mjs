@@ -35,8 +35,6 @@ const LABELS = {
   USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
   JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
 };
-// ایموجی‌ها فقط «fallback» هستند؛ اگر PNG بود همان را استفاده می‌کنیم
-const FLAGS = { USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷", JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲" };
 
 const COLORS = {
   text: "#22303a",
@@ -44,19 +42,11 @@ const COLORS = {
   headBg: "#cfe8ff",
   headText: "#2c3e50",
   rowBg: "#ffffff",
+  rowAltBg: "#f7fafc",   // خاکستری خیلی روشن برای زبرا
   rowDivider: "#d9e2ef",
-  // منطق مثلث‌ها: +۱٪ قرمز▲ ، −۱٪ آبی▼ ، مابقی سبز▶
-  up:   "#c62828", // قرمز
-  down: "#1e88e5", // آبی
-  flat: "#2e7d32", // سبز
-  // caret فعلاً استفاده نمی‌شود
-  caret: "#1e88e5"
-};
-
-const THEME = { enableLeftStripe: false };
-const STRIPE = {
-  USD: "#3b82f6", EUR: "#1e40af", GBP: "#ef4444", TRY: "#dc2626",
-  JPY: "#f43f5e", CNY: "#b91c1c", GEL: "#7c3aed", AMD: "#f97316"
+  up:   "#c62828",       // قرمز (▲)
+  down: "#1e88e5",       // آبی (▼)
+  flat: "#2e7d32"        // سبز (▶)
 };
 
 // ---------- ابعاد و جای ستون‌ها ----------
@@ -185,29 +175,20 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   const y = TABLE_Y + i*(ROW_H+ROW_GAP);
   const x = PAD, w = W - PAD*2, h = ROW_H;
 
-  // پس‌زمینه ردیف و خط جداکننده
-  ctx.fillStyle = COLORS.rowBg;
+  // زِبریا: ردیف‌های زوج خاکستری روشن، فرد سفید
+  ctx.fillStyle = (i % 2 === 0) ? COLORS.rowBg : COLORS.rowAltBg;
   roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 10, bl: 10 });
   ctx.fill();
+
+  // خط جداکنندهٔ پایین ردیف
   ctx.strokeStyle = COLORS.rowDivider; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(x+10, y+h); ctx.lineTo(x+w-10, y+h); ctx.stroke();
 
-  // (اختیاری) لاین رنگی کناری
-  if (THEME.enableLeftStripe){
-    const stripe = STRIPE[sym] || "#93c5fd";
-    ctx.fillStyle = stripe; ctx.fillRect(x+1, y+2, 6, h-4);
-  }
-
-  // پرچم: اگر PNG داده شده بود، همان؛ وگرنه ایموجی (fallback)
+  // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شد)
   if (flagImg){
-    const fw = 30, fh = 25;
+    const fw = 28, fh = 18;                 // می‌خواهی کوچکتر/بزرگتر؟ این دو عدد را تغییر بده
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
-  } else {
-    ctx.textAlign = "left"; ctx.fillStyle = COLORS.text;
-    ctx.font = "700 20px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, Arial";
-    const flag = FLAGS[sym] || "";
-    if (flag) ctx.fillText(flag, COL.flag, y+27);
   }
 
   // کُد ارز (آبی) و نام ارز
@@ -218,7 +199,7 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   ctx.font = "600 16px system-ui, Arial"; ctx.fillStyle = COLORS.text;
   ctx.fillText(label, COL.curr, y+27);
 
-  // Sell و Buy: یک مثلث کنار عدد (بدون هم‌پوشانی)
+  // Sell و Buy با مثلث
   drawValueWithTriangle(ctx, buy,  COL.buy,  y, dir);
   drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
 }
