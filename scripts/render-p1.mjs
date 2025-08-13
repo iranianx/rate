@@ -114,7 +114,7 @@ function roundedRectCorners(ctx, x, y, w, h, r){
 
 // پهنای لازمِ جدول بر اساس جای ستون آخر + حاشیه کوچک
 function tableWidth(){
-  const NUM_W = 96;   // برآورد پهنای عدد ۶رقمی با ویرگول
+  const NUM_W = Number(globalThis.NUM_W_EST ?? 96);   // برآورد پهنای عدد ۶رقمی با اندازه‌گیری پویا
   const TRI_W = 10;   // پهنای مثلث
   const GAP   = 6;    // فاصله‌ی مثلث تا عدد (باید با drawValueWithTriangle یکی باشد)
   const RIGHT_PAD = 20;
