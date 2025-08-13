@@ -42,8 +42,8 @@ const COLORS = {
   headBg: "#cfe8ff",
   headText: "#2c3e50",
   rowBg: "#ffffff",
-  rowAltBg: "#eef2f7",   //  یک ردیف درمیان خاکستری
-  rowDivider: "#d9e2ef",
+  rowAltBg: "#f2f2f2",   // یک ردیف درمیان خاکستری خالص
+  rowDivider: "#d0d0d0", // کمی تیره‌تر از rowAltBg
   up:   "#c62828",       // قرمز (▲)
   down: "#1e88e5",       // آبی (▼)
   flat: "#2e7d32"        // سبز (▶)
