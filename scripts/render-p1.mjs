@@ -30,10 +30,11 @@ function writeJSON(p, o){
 }
 
 // ---------- پیکربندی نمایشی ----------
-const ORDER = ["USD_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
+const ORDER = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","CAD_TMN","AUD_TMN","RUB_TMN","AED_TMN","KWD_TMN","IQD_TMN","SAR_TMN","TRY_TMN","GEL_TMN","AZN_TMN","AMD_TMN","JPY_TMN","CNY_TMN","AFN_TMN"];
+
 const LABELS = {
-  USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
-  JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
+  USD:  "US Dollar", USDT: "Tether (USDT)", EUR:  "Euro", GBP:  "British Pound", CAD:  "Canadian Dollar", AUD:  "Australian Dollar", RUB:  "Russian Ruble", AED:  "UAE Dirham", KWD:  "Kuwaiti Dinar",
+  IQD:  "Iraqi Dinar", SAR:  "Saudi Riyal", TRY:  "Turkish Lira", GEL:  "Georgian Lari", AZN:  "Azerbaijani Manat", AMD:  "Armenian Dram", JPY:  "Japanese Yen", CNY:  "Chinese Yuan", AFN:  "Afghan Afghani"
 };
 
 const COLORS = {
