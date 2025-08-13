@@ -30,10 +30,11 @@ function writeJSON(p, o){
 }
 
 // ---------- پیکربندی نمایشی ----------
-const ORDER = ["USD_TMN","EUR_TMN","GBP_TMN","TRY_TMN","JPY_TMN","CNY_TMN","GEL_TMN","AMD_TMN"];
+const ORDER = ["USD_TMN","USDT_TMN","EUR_TMN","GBP_TMN","CAD_TMN","AUD_TMN","RUB_TMN","AED_TMN","KWD_TMN","IQD_TMN","SAR_TMN","TRY_TMN","GEL_TMN","AZN_TMN","AMD_TMN","JPY_TMN","CNY_TMN","AFN_TMN"];
+
 const LABELS = {
-  USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
-  JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
+  USD:  "US Dollar", USDT: "Tether (USDT)", EUR:  "Euro", GBP:  "British Pound", CAD:  "Canadian Dollar", AUD:  "Australian Dollar", RUB:  "Russian Ruble", AED:  "UAE Dirham", KWD:  "Kuwaiti Dinar",
+  IQD:  "Iraqi Dinar", SAR:  "Saudi Riyal", TRY:  "Turkish Lira", GEL:  "Georgian Lari", AZN:  "Azerbaijani Manat", AMD:  "Armenian Dram", JPY:  "Japanese Yen", CNY:  "Chinese Yuan", AFN:  "Afghan Afghani"
 };
 
 const COLORS = {
@@ -177,11 +178,25 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.stroke();
 
   // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شده)
+  // پرچم: 28x24 با حفظ نسبت تصویر (برای لوگوهای گرد مثل USDT)
   if (flagImg){
-    const fw = 24, fh = 18; // جمع‌وجور شبیه نمونه
-    const fy = y + Math.round((h - fh)/2);
-    ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
-  }
+    const boxW = 28, boxH = 24;
+    const boxY = y + Math.round((ROW_H - boxH)/2);
+
+    const iw = flagImg.width  || boxW;
+    const ih = flagImg.height || boxH;
+    const scale = Math.min(boxW/iw, boxH/ih);
+    const dw = Math.round(iw * scale);
+    const dh = Math.round(ih * scale);
+    const dx = COL.flag + Math.round((boxW - dw)/2);
+    const dy = boxY + Math.round((boxH - dh)/2);
+
+  // (اختیاری) پس‌زمینه سفید پشت آیکن:
+  // ctx.fillStyle = "#fff"; ctx.fillRect(COL.flag, boxY, boxW, boxH);
+
+  ctx.drawImage(flagImg, dx, dy, dw, dh);
+}
+
 
   // کُد ارز (آبی) و نام ارز
   ctx.textAlign = "left";
