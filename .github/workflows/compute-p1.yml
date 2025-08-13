@@ -1,50 +1,74 @@
 name: Compute & Build p1 (manual)
 
 on:
-  workflow_dispatch: {}   # فقط اجرای دستی
+  workflow_dispatch: {}   # اجرای دستی
 
 permissions:
   contents: write         # اجازهٔ commit/push
 
+concurrency:
+  group: compute-p1
+  cancel-in-progress: false
+
 jobs:
   compute_and_render:
     runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Istanbul
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      # مرحله محاسبه طبق قواعد ۱–۵ (خروجی: docs/rates.json به‌روز می‌شود)
+      # --- Compute: قواعد 1–5 → تولید/به‌روزرسانی docs/rates.json و گزارش دیباگ
       - name: Compute p1 deltas and update rates.json
         run: node scripts/compute-p1.mjs
 
-      - name: Commit updated rates.json
+      - name: Commit computed artifacts (rates, ewma, debug report)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/rates.json
-          git commit -m "compute: update rates.json (p1)" || echo "no changes"
+          git add docs/rates.json docs/debug/compute-report.json state/ewma.json || true
+          git commit -m "compute(p1): update rates.json, ewma.json, and debug report" || echo "no changes"
 
-      # پیش‌نیازهای node-canvas برای خروجی PNG
+      # --- (اختیاری) برای بررسی سریع در UI اکشنز
+      - name: Upload debug report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compute-report
+          path: docs/debug/compute-report.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # --- Render: پیش‌نیازهای canvas و تولید p1.png / p1.html
       - name: Install system deps for canvas
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev
+          sudo apt-get install -y \
+            build-essential libcairo2-dev libpango1.0-dev \
+            libjpeg-dev libgif-dev librsvg2-dev
 
-      - name: Install node deps
+      - name: Install node deps (canvas)
         run: npm i canvas@2
 
-      # ساخت تصویر p1.png از روی rates.json
       - name: Render p1.png
         run: node scripts/render-p1.mjs
 
-      - name: Commit p1.png
+      - name: Commit rendered outputs
         run: |
-          git add docs/p1.png docs/p1.html
-          git commit -m "build: p1.png" || echo "no changes"
-          git push
+          git add docs/p1.png docs/p1.html || true
+          git commit -m "build(p1): render p1.png and p1.html" || echo "no changes"
+
+      - name: Push changes
+        run: |
+          # سعی می‌کنیم قبل از push، آخرین تغییرها را بگیریم تا کانفلیکت نشود
+          git pull --rebase || true
+          git push || true
