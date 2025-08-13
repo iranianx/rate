@@ -42,7 +42,7 @@ const COLORS = {
   headBg: "#cfe8ff",
   headText: "#2c3e50",
   rowBg: "#ffffff",
-  rowAltBg: "#f7fafc",   // خاکستری خیلی روشن برای زبرا
+  rowAltBg: "#eef2f7",   //  یک ردیف درمیان خاکستری
   rowDivider: "#d9e2ef",
   up:   "#c62828",       // قرمز (▲)
   down: "#1e88e5",       // آبی (▼)
@@ -177,7 +177,7 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
 
   // زِبریا: ردیف‌های زوج خاکستری روشن، فرد سفید
   ctx.fillStyle = (i % 2 === 0) ? COLORS.rowBg : COLORS.rowAltBg;
-  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 10, bl: 10 });
+  roundedRectCorners(ctx, x, y, w, h, { tl: 6, tr: 6, br: 6, bl: 6 });
   ctx.fill();
 
   // خط جداکنندهٔ پایین ردیف
