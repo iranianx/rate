@@ -200,7 +200,7 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
 
   // پرچم: اگر PNG داده شده بود، همان؛ وگرنه ایموجی (fallback)
   if (flagImg){
-    const fw = 24, fh = 16;
+    const fw = 30, fh = 25;
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
   } else {
