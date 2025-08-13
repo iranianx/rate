@@ -186,7 +186,7 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
 
   // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شد)
   if (flagImg){
-    const fw = 28, fh = 18;                 // می‌خواهی کوچکتر/بزرگتر؟ این دو عدد را تغییر بده
+    const fw = 30, fh = 25;                 // می‌خواهی کوچکتر/بزرگتر؟ این دو عدد را تغییر بده
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
   }
