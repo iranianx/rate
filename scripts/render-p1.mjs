@@ -35,50 +35,39 @@ const LABELS = {
   USD: "US Dollar", EUR: "Euro", GBP: "British Pound", TRY: "Turkish Lira",
   JPY: "Japanese Yen", CNY: "Chinese Yuan", GEL: "Georgian Lari", AMD: "Armenian Dram"
 };
-// ایموجی‌ها فقط «fallback» هستند؛ اگر PNG بود همان را استفاده می‌کنیم
-const FLAGS = { USD:"🇺🇸", EUR:"🇪🇺", GBP:"🇬🇧", TRY:"🇹🇷", JPY:"🇯🇵", CNY:"🇨🇳", GEL:"🇬🇪", AMD:"🇦🇲" };
 
 const COLORS = {
   text: "#22303a",
   link: "#1976d2",
-  headBg: "#cfe8ff",
+  headBg: "#d9e5f3",   // بین #cfe8ff و #e3e9f1
   headText: "#2c3e50",
   rowBg: "#ffffff",
-  rowDivider: "#d9e2ef",
-  // منطق مثلث‌ها: +۱٪ قرمز▲ ، −۱٪ آبی▼ ، مابقی سبز▶
-  up:   "#c62828", // قرمز
-  down: "#1e88e5", // آبی
-  flat: "#2e7d32", // سبز
-  // caret فعلاً استفاده نمی‌شود
-  caret: "#1e88e5"
-};
-
-const THEME = { enableLeftStripe: false };
-const STRIPE = {
-  USD: "#3b82f6", EUR: "#1e40af", GBP: "#ef4444", TRY: "#dc2626",
-  JPY: "#f43f5e", CNY: "#b91c1c", GEL: "#7c3aed", AMD: "#f97316"
+  rowAltBg: "#f2f2f2",
+  rowDivider: "#c8cdd4",
+  // مثلث‌های فسفری/نئونی
+  up:   "#ff3366",     // قرمز نئونی
+  down: "#33b5ff",     // آبی نئونی
+  flat: "#00e676"      // سبز نئونی
 };
 
 // ---------- ابعاد و جای ستون‌ها ----------
-const W = 1100, PAD = 16;
-// بدون فاصله‌ی اضافی بالا
-const HEADER_TOP = 0, TITLE_H = 0, SUB_H = 0;
-// هدر از پیکسل 0 شروع شود
-const TABLE_Y = 32;
-
+const W = 1100, PAD = 16;         // W فعلاً برای هماهنگی‌های بعدی نگه داشته شده
+const TABLE_Y = 32;               // هدر از پیکسل 0 شروع شود
 const ROW_H = 44, ROW_GAP = 2;
 
-// ستون‌ها: Buy نزدیکِ Currency؛ Sell بعد از آن
+// شیفت افقی (حدود دو کاراکتر) برای جا گذاشتن محل برش
+const SHIFT = 20;
+
 const COL = {
-  flag: PAD + 6,
-  code: PAD + 46,
-  curr: PAD + 150,
-  buy : PAD + 400,  // نزدیک‌تر شد
-  sell: PAD + 520   // کمی بعد از Buy
+  flag: PAD + 6   + SHIFT,
+  code: PAD + 40  + SHIFT,
+  curr: PAD + 100 + SHIFT,
+  buy : PAD + 300 + SHIFT,
+  sell: PAD + 400 + SHIFT
 };
 
 // ---------- کمکی‌های اعداد ----------
-function fmt(n){ const v=Number(n); return isFinite(v)?v.toLocaleString("en-US"):"-"; }
+function fmt(n){ const v = Number(n); return isFinite(v) ? v.toLocaleString("en-US") : "-"; }
 
 // جهت با آستانه درصدی (برای مثلث‌ها)
 function percentDir(cur, prev, thresholdPct = 1){
@@ -87,13 +76,12 @@ function percentDir(cur, prev, thresholdPct = 1){
   const pct = ((c - p) / p) * 100;
   if (pct >=  thresholdPct) return 1;   // +1% یا بیشتر ⇒ قرمز ▲
   if (pct <= -thresholdPct) return -1;  // −1% یا کمتر ⇒ آبی ▼
-  return 0;                              // بین این دو ⇒ سبز ▶
+  return 0;                             // بین این دو ⇒ سبز ▶
 }
 // ===== پایان بخش ۱ =====
-
 // ===== بخش 2: توابع پایه‌ی رسم =====
 
-// مستطیل با شعاعِ مستقل برای هر گوشه
+// مستطیل با شعاعِ مستقل برای هر گوشه (الان استفاده نمی‌کنیم؛ برای آینده نگه داشته می‌شود)
 function roundedRectCorners(ctx, x, y, w, h, r){
   const tl = (r?.tl ?? r) || 0;
   const tr = (r?.tr ?? r) || 0;
@@ -114,26 +102,25 @@ function roundedRectCorners(ctx, x, y, w, h, r){
 
 // پهنای لازمِ جدول بر اساس جای ستون آخر + حاشیه کوچک
 function tableWidth(){
-  const NUM_W = Number(globalThis.NUM_W_EST ?? 96);   // برآورد پهنای عدد ۶رقمی با اندازه‌گیری پویا
-  const TRI_W = 10;   // پهنای مثلث
-  const GAP   = 6;    // فاصله‌ی مثلث تا عدد (باید با drawValueWithTriangle یکی باشد)
+  const NUM_W = Number(globalThis.NUM_W_EST ?? 96);   // برآورد پهنای عدد با اندازه‌گیری پویا
+  const TRI_W = 10;                                   // پهنای مثلث
+  const GAP   = 6;                                    // فاصله‌ی مثلث تا عدد
   const RIGHT_PAD = 20;
   const rightMostCol = Math.max(COL.buy, COL.sell);
   return (rightMostCol + TRI_W + GAP + NUM_W) - PAD + RIGHT_PAD;
 }
 
-// نوار عنوان جدول (آبی آسمانی، گوشه‌های نرم، بدون تیتر)
+// هدر: بدون گوشهٔ گرد + خط زیرین سرتاسری
 function header(ctx, updatedAt){
   const y = TABLE_Y - 32, x = PAD, w = tableWidth(), h = 32;
 
-  // خود باکس
-  ctx.fillStyle = COLORS.headBg; // مثلاً #cfe8ff
-  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 8, bl: 8 });
-  ctx.fill();
+  // باکس ساده بدون گردی
+  ctx.fillStyle = COLORS.headBg;
+  ctx.fillRect(x, y, w, h);
 
-  // خطِ جداکننده‌ی خیلی کم‌رنگ در پایین باکس
-  ctx.fillStyle = "#b7cff5"; // یک تون تیره‌تر از headBg
-  ctx.fillRect(x + 1, y + h - 1, w - 2, 1);
+  // خط زیر هدر: سرتاسری و کمی تیره‌تر
+  ctx.fillStyle = "#b9c1cc";
+  ctx.fillRect(x, y + h - 1, w, 1);
 
   // برچسب ستون‌ها
   ctx.fillStyle = COLORS.headText;
@@ -162,63 +149,49 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// عدد را چپ‌چین می‌نویسد و مثلث را چپِ عدد می‌گذارد؛ رنگ عدد تیره
+// عدد + مثلث چپِ عدد
 function drawValueWithTriangle(ctx, value, colX, baseY, dir){
   const txt = fmt(value);
-
-  // مثلث
-  const triW = 10, gap = 6;           // حتماً با tableWidth هماهنگ باشد
+  const triW = 10, gap = 6;
   const triX = colX - (triW + gap);
-  ctx.save();
-  trendArrow(ctx, dir, triX, baseY + 12);
-  ctx.restore();
 
-  // عدد
+  trendArrow(ctx, dir, triX, baseY + 12);
+
   ctx.textAlign = "left";
   ctx.font = "600 18px system-ui, Arial";
-  ctx.fillStyle = COLORS.text;        // اگر خواستی: "#000"
+  ctx.fillStyle = COLORS.text;
   ctx.fillText(txt, colX, baseY + 27);
 }
 // ===== پایان بخش 2 =====
 // ===== بخش 3: ردیف جدول =====
 function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
-  const y = TABLE_Y + i*(ROW_H+ROW_GAP);
-  const x = PAD, w = W - PAD*2, h = ROW_H;
+  const y = TABLE_Y + i*(ROW_H + ROW_GAP);
+  const x = PAD, w = tableWidth(), h = ROW_H;
 
-  // پس‌زمینه ردیف و خط جداکننده
-  ctx.fillStyle = COLORS.rowBg;
-  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 10, bl: 10 });
-  ctx.fill();
+  // پس‌زمینه ردیف: بدون گوشه گرد + زبرا
+  ctx.fillStyle = (i % 2 === 0) ? COLORS.rowBg : COLORS.rowAltBg;
+  ctx.fillRect(x, y, w, h);
+
+  // خط جداکنندهٔ پایین ردیف (سرتاسری)
   ctx.strokeStyle = COLORS.rowDivider; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x+10, y+h); ctx.lineTo(x+w-10, y+h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.stroke();
 
-  // (اختیاری) لاین رنگی کناری
-  if (THEME.enableLeftStripe){
-    const stripe = STRIPE[sym] || "#93c5fd";
-    ctx.fillStyle = stripe; ctx.fillRect(x+1, y+2, 6, h-4);
-  }
-
-  // پرچم: اگر PNG داده شده بود، همان؛ وگرنه ایموجی (fallback)
+  // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شده)
   if (flagImg){
-    const fw = 24, fh = 16;
+    const fw = 24, fh = 18; // جمع‌وجور شبیه نمونه
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
-  } else {
-    ctx.textAlign = "left"; ctx.fillStyle = COLORS.text;
-    ctx.font = "700 20px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, Arial";
-    const flag = FLAGS[sym] || "";
-    if (flag) ctx.fillText(flag, COL.flag, y+27);
   }
 
   // کُد ارز (آبی) و نام ارز
   ctx.textAlign = "left";
   ctx.font = "700 16px system-ui, Arial"; ctx.fillStyle = COLORS.link;
-  ctx.fillText(sym, COL.code, y+27);
+  ctx.fillText(sym, COL.code, y + 27);
 
   ctx.font = "600 16px system-ui, Arial"; ctx.fillStyle = COLORS.text;
-  ctx.fillText(label, COL.curr, y+27);
+  ctx.fillText(label, COL.curr, y + 27);
 
-  // Sell و Buy: یک مثلث کنار عدد (بدون هم‌پوشانی)
+  // Buy و Sell با مثلث
   drawValueWithTriangle(ctx, buy,  COL.buy,  y, dir);
   drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
 }
@@ -253,7 +226,7 @@ async function main(){
   }
   if (rows.length === 0) throw new Error("No rows to render (check ORDER or rates.spot)");
 
-  // پرچم‌ها از docs/flags/ (اگر نبود: fallback ایموجی)
+  // پرچم‌ها از docs/flags/
   const flagEntries = await Promise.all(rows.map(async (r) => {
     const fp = path.join(FLAGS_DIR, `${r.sym}.png`);
     if (fs.existsSync(fp)) {
