@@ -61,8 +61,8 @@ const ROW_H = 44, ROW_GAP = 2;
 // ستون‌ها: Buy نزدیکِ Currency؛ Sell بعد از آن
 const COL = {
   flag: PAD + 6,
-  code: PAD + 46,
-  curr: PAD + 150,
+  code: PAD + 40,
+  curr: PAD + 130,
   buy : PAD + 400,  // نزدیک‌تر شد
   sell: PAD + 520   // کمی بعد از Buy
 };
