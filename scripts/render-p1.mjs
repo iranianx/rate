@@ -39,14 +39,15 @@ const LABELS = {
 const COLORS = {
   text: "#22303a",
   link: "#1976d2",
-  headBg: "#e3e9f1",     // آبی خیلی نزدیک به خاکستری
+  headBg: "#d9e5f3",   // بین #cfe8ff و #e3e9f1
   headText: "#2c3e50",
   rowBg: "#ffffff",
-  rowAltBg: "#f2f2f2",   // خاکستری یک‌درمیان
-  rowDivider: "#c8cdd4", // کمی تیره‌تر تا خواناتر شود
-  up:   "#c62828",
-  down: "#1e88e5",
-  flat: "#2e7d32"
+  rowAltBg: "#f2f2f2",
+  rowDivider: "#c8cdd4",
+  // مثلث‌های فسفری/نئونی
+  up:   "#ff3366",     // قرمز نئونی
+  down: "#33b5ff",     // آبی نئونی
+  flat: "#00e676"      // سبز نئونی
 };
 
 // ---------- ابعاد و جای ستون‌ها ----------
