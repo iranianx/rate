@@ -178,11 +178,25 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.stroke();
 
   // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شده)
+  // پرچم: 28x24 با حفظ نسبت تصویر (برای لوگوهای گرد مثل USDT)
   if (flagImg){
-    const fw = 28, fh = 24; // جمع‌وجور شبیه نمونه
-    const fy = y + Math.round((h - fh)/2);
-    ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
-  }
+    const boxW = 28, boxH = 24;
+    const boxY = y + Math.round((ROW_H - boxH)/2);
+
+    const iw = flagImg.width  || boxW;
+    const ih = flagImg.height || boxH;
+    const scale = Math.min(boxW/iw, boxH/ih);
+    const dw = Math.round(iw * scale);
+    const dh = Math.round(ih * scale);
+    const dx = COL.flag + Math.round((boxW - dw)/2);
+    const dy = boxY + Math.round((boxH - dh)/2);
+
+  // (اختیاری) پس‌زمینه سفید پشت آیکن:
+  // ctx.fillStyle = "#fff"; ctx.fillRect(COL.flag, boxY, boxW, boxH);
+
+  ctx.drawImage(flagImg, dx, dy, dw, dh);
+}
+
 
   // کُد ارز (آبی) و نام ارز
   ctx.textAlign = "left";
