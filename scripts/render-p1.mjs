@@ -39,36 +39,34 @@ const LABELS = {
 const COLORS = {
   text: "#22303a",
   link: "#1976d2",
-  headBg: "#cfe8ff",
+  headBg: "#e3e9f1",     // آبی خیلی نزدیک به خاکستری
   headText: "#2c3e50",
   rowBg: "#ffffff",
-  rowAltBg: "#f2f2f2",   // یک ردیف درمیان خاکستری خالص
-  rowDivider: "#d0d0d0", // کمی تیره‌تر از rowAltBg
-  up:   "#c62828",       // قرمز (▲)
-  down: "#1e88e5",       // آبی (▼)
-  flat: "#2e7d32"        // سبز (▶)
+  rowAltBg: "#f2f2f2",   // خاکستری یک‌درمیان
+  rowDivider: "#c8cdd4", // کمی تیره‌تر تا خواناتر شود
+  up:   "#c62828",
+  down: "#1e88e5",
+  flat: "#2e7d32"
 };
 
 // ---------- ابعاد و جای ستون‌ها ----------
-const W = 1100, PAD = 16;
-// بدون فاصله‌ی اضافی بالا
-const HEADER_TOP = 0, TITLE_H = 0, SUB_H = 0;
-// هدر از پیکسل 0 شروع شود
-const TABLE_Y = 32;
-
+const W = 1100, PAD = 16;         // W فعلاً برای هماهنگی‌های بعدی نگه داشته شده
+const TABLE_Y = 32;               // هدر از پیکسل 0 شروع شود
 const ROW_H = 44, ROW_GAP = 2;
 
-// ستون‌ها: Buy نزدیکِ Currency؛ Sell بعد از آن
+// شیفت افقی (حدود دو کاراکتر) برای جا گذاشتن محل برش
+const SHIFT = 20;
+
 const COL = {
-  flag: PAD + 6,
-  code: PAD + 40,
-  curr: PAD + 100,
-  buy : PAD + 300,  // نزدیک‌تر شد
-  sell: PAD + 400   // کمی بعد از Buy
+  flag: PAD + 6   + SHIFT,
+  code: PAD + 40  + SHIFT,
+  curr: PAD + 100 + SHIFT,
+  buy : PAD + 300 + SHIFT,
+  sell: PAD + 400 + SHIFT
 };
 
 // ---------- کمکی‌های اعداد ----------
-function fmt(n){ const v=Number(n); return isFinite(v)?v.toLocaleString("en-US"):"-"; }
+function fmt(n){ const v = Number(n); return isFinite(v) ? v.toLocaleString("en-US") : "-"; }
 
 // جهت با آستانه درصدی (برای مثلث‌ها)
 function percentDir(cur, prev, thresholdPct = 1){
@@ -77,13 +75,12 @@ function percentDir(cur, prev, thresholdPct = 1){
   const pct = ((c - p) / p) * 100;
   if (pct >=  thresholdPct) return 1;   // +1% یا بیشتر ⇒ قرمز ▲
   if (pct <= -thresholdPct) return -1;  // −1% یا کمتر ⇒ آبی ▼
-  return 0;                              // بین این دو ⇒ سبز ▶
+  return 0;                             // بین این دو ⇒ سبز ▶
 }
 // ===== پایان بخش ۱ =====
-
 // ===== بخش 2: توابع پایه‌ی رسم =====
 
-// مستطیل با شعاعِ مستقل برای هر گوشه
+// مستطیل با شعاعِ مستقل برای هر گوشه (الان استفاده نمی‌کنیم؛ برای آینده نگه داشته می‌شود)
 function roundedRectCorners(ctx, x, y, w, h, r){
   const tl = (r?.tl ?? r) || 0;
   const tr = (r?.tr ?? r) || 0;
@@ -104,26 +101,25 @@ function roundedRectCorners(ctx, x, y, w, h, r){
 
 // پهنای لازمِ جدول بر اساس جای ستون آخر + حاشیه کوچک
 function tableWidth(){
-  const NUM_W = Number(globalThis.NUM_W_EST ?? 96);   // برآورد پهنای عدد ۶رقمی با اندازه‌گیری پویا
-  const TRI_W = 10;   // پهنای مثلث
-  const GAP   = 6;    // فاصله‌ی مثلث تا عدد (باید با drawValueWithTriangle یکی باشد)
+  const NUM_W = Number(globalThis.NUM_W_EST ?? 96);   // برآورد پهنای عدد با اندازه‌گیری پویا
+  const TRI_W = 10;                                   // پهنای مثلث
+  const GAP   = 6;                                    // فاصله‌ی مثلث تا عدد
   const RIGHT_PAD = 20;
   const rightMostCol = Math.max(COL.buy, COL.sell);
   return (rightMostCol + TRI_W + GAP + NUM_W) - PAD + RIGHT_PAD;
 }
 
-// نوار عنوان جدول (آبی آسمانی، گوشه‌های نرم، بدون تیتر)
+// هدر: بدون گوشهٔ گرد + خط زیرین سرتاسری
 function header(ctx, updatedAt){
   const y = TABLE_Y - 32, x = PAD, w = tableWidth(), h = 32;
 
-  // خود باکس
-  ctx.fillStyle = COLORS.headBg; // مثلاً #cfe8ff
-  roundedRectCorners(ctx, x, y, w, h, { tl: 10, tr: 10, br: 8, bl: 8 });
-  ctx.fill();
+  // باکس ساده بدون گردی
+  ctx.fillStyle = COLORS.headBg;
+  ctx.fillRect(x, y, w, h);
 
-  // خطِ جداکننده‌ی خیلی کم‌رنگ در پایین باکس
-  ctx.fillStyle = "#b7cff5"; // یک تون تیره‌تر از headBg
-  ctx.fillRect(x + 1, y + h - 1, w - 2, 1);
+  // خط زیر هدر: سرتاسری و کمی تیره‌تر
+  ctx.fillStyle = "#b9c1cc";
+  ctx.fillRect(x, y + h - 1, w, 1);
 
   // برچسب ستون‌ها
   ctx.fillStyle = COLORS.headText;
@@ -152,41 +148,36 @@ function trendArrow(ctx, dir, x, y){
   ctx.closePath(); ctx.fill();
 }
 
-// عدد را چپ‌چین می‌نویسد و مثلث را چپِ عدد می‌گذارد؛ رنگ عدد تیره
+// عدد + مثلث چپِ عدد
 function drawValueWithTriangle(ctx, value, colX, baseY, dir){
   const txt = fmt(value);
-
-  // مثلث
-  const triW = 10, gap = 6;           // حتماً با tableWidth هماهنگ باشد
+  const triW = 10, gap = 6;
   const triX = colX - (triW + gap);
-  ctx.save();
-  trendArrow(ctx, dir, triX, baseY + 12);
-  ctx.restore();
 
-  // عدد
+  trendArrow(ctx, dir, triX, baseY + 12);
+
   ctx.textAlign = "left";
   ctx.font = "600 18px system-ui, Arial";
-  ctx.fillStyle = COLORS.text;        // اگر خواستی: "#000"
+  ctx.fillStyle = COLORS.text;
   ctx.fillText(txt, colX, baseY + 27);
 }
 // ===== پایان بخش 2 =====
 // ===== بخش 3: ردیف جدول =====
 function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
-  const y = TABLE_Y + i*(ROW_H+ROW_GAP);
-  const x = PAD, w = W - PAD*2, h = ROW_H;
+  const y = TABLE_Y + i*(ROW_H + ROW_GAP);
+  const x = PAD, w = tableWidth(), h = ROW_H;
 
-  // زِبریا: ردیف‌های زوج خاکستری روشن، فرد سفید
+  // پس‌زمینه ردیف: بدون گوشه گرد + زبرا
   ctx.fillStyle = (i % 2 === 0) ? COLORS.rowBg : COLORS.rowAltBg;
-  roundedRectCorners(ctx, x, y, w, h, { tl: 6, tr: 6, br: 6, bl: 6 });
-  ctx.fill();
+  ctx.fillRect(x, y, w, h);
 
-  // خط جداکنندهٔ پایین ردیف
+  // خط جداکنندهٔ پایین ردیف (سرتاسری)
   ctx.strokeStyle = COLORS.rowDivider; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(x+10, y+h); ctx.lineTo(x+w-10, y+h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.stroke();
 
-  // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شد)
+  // پرچم: فقط اگر PNG داریم (fallback ایموجی حذف شده)
   if (flagImg){
-    const fw = 30, fh = 25;                 // می‌خواهی کوچکتر/بزرگتر؟ این دو عدد را تغییر بده
+    const fw = 24, fh = 18; // جمع‌وجور شبیه نمونه
     const fy = y + Math.round((h - fh)/2);
     ctx.drawImage(flagImg, COL.flag, fy, fw, fh);
   }
@@ -194,12 +185,12 @@ function row(ctx, i, { sym, label, sell, buy, dir, flagImg }){
   // کُد ارز (آبی) و نام ارز
   ctx.textAlign = "left";
   ctx.font = "700 16px system-ui, Arial"; ctx.fillStyle = COLORS.link;
-  ctx.fillText(sym, COL.code, y+27);
+  ctx.fillText(sym, COL.code, y + 27);
 
   ctx.font = "600 16px system-ui, Arial"; ctx.fillStyle = COLORS.text;
-  ctx.fillText(label, COL.curr, y+27);
+  ctx.fillText(label, COL.curr, y + 27);
 
-  // Sell و Buy با مثلث
+  // Buy و Sell با مثلث
   drawValueWithTriangle(ctx, buy,  COL.buy,  y, dir);
   drawValueWithTriangle(ctx, sell, COL.sell, y, dir);
 }
@@ -234,7 +225,7 @@ async function main(){
   }
   if (rows.length === 0) throw new Error("No rows to render (check ORDER or rates.spot)");
 
-  // پرچم‌ها از docs/flags/ (اگر نبود: fallback ایموجی)
+  // پرچم‌ها از docs/flags/
   const flagEntries = await Promise.all(rows.map(async (r) => {
     const fp = path.join(FLAGS_DIR, `${r.sym}.png`);
     if (fs.existsSync(fp)) {
