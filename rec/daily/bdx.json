@@ -1,7 +1,21 @@
 {
-  "version": 1,
-  "list_id": "bdx",
+  "asof": "YYYY-MM-DD",
   "tz": "Europe/Istanbul",
-  "day": null,
-  "rows": []
+  "updated_at": "YYYY-MM-DDThh:mm:ss+03:00",
+  "version": "v1",
+  "unit_all": "TMN",
+  "sources": {
+    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
+    "usdt": ["AbanTetherPrice", "TetherLand"],
+    "crypto_usd": ["ref_market"] 
+  },
+  "items": [
+    { "code": "BTC",  "name": "Bitcoin",       "value": null, "rule_key": "BTC",  "notes": "" },
+    { "code": "ETH",  "name": "Ethereum",      "value": null, "rule_key": "ETH",  "notes": "" },
+    { "code": "SOL",  "name": "Solana",        "value": null, "rule_key": "SOL",  "notes": "" },
+    { "code": "BNB",  "name": "BNB",           "value": null, "rule_key": "BNB",  "notes": "" },
+    { "code": "TRX",  "name": "Tron",          "value": null, "rule_key": "TRX",  "notes": "" },
+    { "code": "USDT", "name": "Tether (USDT)", "value": null, "rule_key": "USDT", "notes": "" },
+    { "code": "USDC", "name": "USD Coin",      "value": null, "rule_key": "USDC", "notes": "" }
+  ]
 }
