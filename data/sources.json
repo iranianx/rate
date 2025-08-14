@@ -1,0 +1,12 @@
+{
+  "usd": [
+    {"source":"Herat_Tomen","val":90680,"ts":"2025-08-14T12:00:00Z"},
+    {"source":"Dollar_Tehran3bze","val":90771,"ts":"2025-08-14T12:00:00Z"},
+    {"source":"Dollar_Sulaymaniyah","val":90286,"ts":"2025-08-14T12:00:00Z"},
+    {"source":"Bonbast_USD","val":90550,"ts":"2025-08-14T12:00:00Z"}
+  ],
+  "usdt": [
+    {"source":"AbanTetherPrice","val":91000,"ts":"2025-08-14T12:00:00Z"},
+    {"source":"TetherLand","val":90900,"ts":"2025-08-14T12:00:00Z"}
+  ]
+}
