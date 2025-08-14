@@ -39,6 +39,18 @@ function stripHtml(s) {
   ).trim();
 }
 
+// --- نرمال‌سازی فارسی برای تطبیق کلیدواژه‌ها
+function normFa(s) {
+  if (!s) return "";
+  return toLatinDigits(String(s))
+    .replace(/[\u0640\u200c\u200d\u200f]/g, "")   // کشیده و ZWJ/ZWNJ و RTL mark
+    .replace(/[\u064B-\u0652]/g, "")              // اعراب
+    .replace(/[إأآ]/g, "ا")                       // همسان‌سازی الف‌ها
+    .replace(/ي/g, "ی").replace(/ك/g, "ک")       // عربی→فارسی
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeTelegramUrl(url) {
   if (!url) return url;
   // t.me/channel → t.me/s/channel  (نسخهٔ قابل خزش)
@@ -46,7 +58,7 @@ function normalizeTelegramUrl(url) {
   return url;
 }
 
-// --- یافتن عدد: ترجیحاً نزدیک به کلمات کلیدی «نقد/USDT/…»، در غیر این صورت اولین عدد منطقی
+// --- یافتن عدد: ترجیحاً نزدیک به کلمات کلیدی «نقدی/USDT/…»، در غیر این صورت اولین عدد منطقی
 function extractPricePreferKeywords(text, includeWords) {
   const t = toLatinDigits(text);
 
@@ -54,8 +66,11 @@ function extractPricePreferKeywords(text, includeWords) {
   const numRe = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{4,6})/g;
 
   // 1) تلاش: نزدیک به کلمات کلیدی
-  for (const w of includeWords || []) {
-    const idx = t.indexOf(w);
+  for (const wRaw of includeWords || []) {
+    const w = normFa(wRaw);
+    if (!w) continue;
+    const tn = normFa(t);
+    const idx = tn.indexOf(w);
     if (idx === -1) continue;
     // پنجرهٔ اطراف کلید (±60 کاراکتر)
     const lo = Math.max(0, idx - 60);
@@ -83,7 +98,7 @@ async function fetchText(url) {
   return await r.text();
 }
 
-// --- قوانین تلگرام: فقط «نقدی/اسکناس/کف مشهد»، حذف «فردایی/آتی»
+// --- قوانین تلگرام (طبق آنچه گفتی به‌روز شده)
 const TG_RULES = {
   Herat_Tomen:         { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
   Dollar_Tehran3bze:   { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
@@ -94,9 +109,12 @@ const TG_RULES = {
 
 function passRules(text, key) {
   const cfg = TG_RULES[key] || TG_RULES.Herat_Tomen;
-  const t = toLatinDigits(text);
-  const hasInc = cfg.include.some(w => t.includes(w));
-  const hasExc = cfg.exclude.some(w => t.includes(w));
+  const t = normFa(text);
+  const incWords = (cfg.include || []).map(normFa);
+  const excWords = (cfg.exclude || []).map(normFa);
+
+  const hasInc = incWords.some(w => w && t.includes(w));
+  const hasExc = excWords.some(w => w && t.includes(w));
   return hasInc && !hasExc;
 }
 
@@ -120,7 +138,7 @@ async function pickFromTelegram(key, url) {
     const ts = timeMatch ? timeMatch[1] : new Date().toISOString();
 
     // عدد (ترجیحاً نزدیک به کلیدواژه‌ها)
-    const val = extractPricePreferKeywords(text, cfg.include);
+    const val = extractPricePreferKeywords(text, (cfg.include || []).map(normFa));
     if (val != null) {
       candidates.push({ source: key, val, ts, msg: text });
     }
@@ -146,7 +164,6 @@ async function pickFromBonbast(url) {
   const val = rowMatch ? Number(rowMatch[1].replace(/[,\.\s٬]/g, "")) : null;
 
   // زمان (اختیاری؛ اگر نشد، now)
-  const tsMatch = html.match(/Last\s*Update[^<]*?(\d{1,2}:\d{2}\s*UTC)/i);
   const ts = new Date().toISOString();
 
   if (val) return { source: "Bonbast_USD", val, ts, msg: "Bonbast USD Sell" };
@@ -166,7 +183,8 @@ async function main() {
         rec = await pickFromBonbast(meta.url);
         if (rec) rec.source = srcKey; // canon
       } else {
-        rec = await pickFromTelegram(srcKey, meta.url); // srcKey چون قوانین بر اساس کاننیکال تعریف شده‌اند
+        // srcKey چون قوانین بر اساس کاننیکال تعریف شده‌اند
+        rec = await pickFromTelegram(srcKey, meta.url);
       }
       if (rec) out.usd.push(rec);
     } catch (e) {
