@@ -1,1 +1,473 @@
-1
+{
+  "updated_at": "2025-08-14T19:12:36.988Z",
+  "note": "Temporary compute report for manual verification",
+  "raw_sources": {
+    "updated_at": "2025-08-14T19:12:35.150Z",
+    "usd": [
+      {
+        "source": "Herat_Tomen",
+        "val": 90680,
+        "ts": "2025-08-14T12:00:00Z"
+      },
+      {
+        "source": "Dollar_Tehran3bze",
+        "val": 90771,
+        "ts": "2025-08-14T12:00:00Z"
+      },
+      {
+        "source": "Dollar_Sulaymaniyah",
+        "val": 90286,
+        "ts": "2025-08-14T12:00:00Z"
+      },
+      {
+        "source": "Bonbast_USD",
+        "val": 90550,
+        "ts": "2025-08-14T12:00:00Z"
+      }
+    ],
+    "usdt": [
+      {
+        "source": "AbanTetherPrice",
+        "val": 91000,
+        "ts": "2025-08-14T12:00:00Z"
+      },
+      {
+        "source": "TetherLand",
+        "val": 90900,
+        "ts": "2025-08-14T12:00:00Z"
+      }
+    ]
+  },
+  "inputs": {
+    "sources": {
+      "usd": [
+        {
+          "source": "Herat_Tomen",
+          "val": 90680,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Tehran3bze",
+          "val": 90771,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Sulaymaniyah",
+          "val": 90286,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Bonbast_USD",
+          "val": 90550,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "usdt": [
+        {
+          "source": "AbanTetherPrice",
+          "val": 91000,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "TetherLand",
+          "val": 90900,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ]
+    },
+    "baseline": {
+      "USD_TMN": {
+        "anchor": 90000,
+        "offset_pct": 0
+      },
+      "USDT_TMN": {
+        "anchor": 90000,
+        "offset_pct": 0
+      },
+      "symbols_fx": [
+        "EUR",
+        "GBP",
+        "TRY",
+        "JPY",
+        "CNY",
+        "GEL",
+        "AMD"
+      ]
+    },
+    "thresholds": {
+      "version": "v1",
+      "tz": "Europe/Istanbul",
+      "unit": "TMN",
+      "close_time": "23:00",
+      "rounding": {
+        "tier1": {
+          "min": 50000,
+          "step": 100
+        },
+        "tier2": {
+          "min": 10000,
+          "max": 49999,
+          "step": 50
+        },
+        "tier3": {
+          "min": 1000,
+          "max": 9999,
+          "step": 10
+        },
+        "tier4": {
+          "max": 999,
+          "step": 1
+        }
+      },
+      "outlier": {
+        "usd_window_pct": 5,
+        "usdt_vs_usd_pct": 3
+      },
+      "reconcile": {
+        "usdt_vs_usd_pct": 1
+      },
+      "trend": {
+        "green_range_abs_pct": 1
+      },
+      "logging": {
+        "exclude_reasons": [
+          "closed",
+          "no_data",
+          "outlier_5pct",
+          "outlier_3pct_vs_usd"
+        ]
+      }
+    }
+  },
+  "process": {
+    "usd": {
+      "anchor": 90000,
+      "offset_pct": 0,
+      "med_abs_delta_pct": 0.00014369533677949242,
+      "median_delta_pct": -0.00008603224280201438,
+      "params": {
+        "marketMin": 0.15,
+        "flatCut": 0.02,
+        "halfGap": 5,
+        "dropGap": 10,
+        "ttl_minutes": 45,
+        "outlier_pct": 5
+      },
+      "items_all": [
+        {
+          "source": "Herat_Tomen",
+          "val": 90680,
+          "prev": 90680,
+          "delta": 0,
+          "ewmaNew": 90680,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Tehran3bze",
+          "val": 90771,
+          "prev": 90771.15618492296,
+          "delta": -0.00017206448560402876,
+          "ewmaNew": 90771.11156065925,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Sulaymaniyah",
+          "val": 90286,
+          "prev": 90285.89587671803,
+          "delta": 0.00011532618795495608,
+          "ewmaNew": 90285.92562622717,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Bonbast_USD",
+          "val": 90550,
+          "prev": 90630.69554352353,
+          "delta": -0.08903776258097906,
+          "ewmaNew": 90607.63967394538,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "items_active": [
+        {
+          "source": "Herat_Tomen",
+          "val": 90680,
+          "prev": 90680,
+          "delta": 0,
+          "ewmaNew": 90680,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Tehran3bze",
+          "val": 90771,
+          "prev": 90771.15618492296,
+          "delta": -0.00017206448560402876,
+          "ewmaNew": 90771.11156065925,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Sulaymaniyah",
+          "val": 90286,
+          "prev": 90285.89587671803,
+          "delta": 0.00011532618795495608,
+          "ewmaNew": 90285.92562622717,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Bonbast_USD",
+          "val": 90550,
+          "prev": 90630.69554352353,
+          "delta": -0.08903776258097906,
+          "ewmaNew": 90607.63967394538,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "items_filtered": [
+        {
+          "source": "Herat_Tomen",
+          "val": 90680,
+          "prev": 90680,
+          "delta": 0,
+          "ewmaNew": 90680,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Tehran3bze",
+          "val": 90771,
+          "prev": 90771.15618492296,
+          "delta": -0.00017206448560402876,
+          "ewmaNew": 90771.11156065925,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Dollar_Sulaymaniyah",
+          "val": 90286,
+          "prev": 90285.89587671803,
+          "delta": 0.00011532618795495608,
+          "ewmaNew": 90285.92562622717,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "Bonbast_USD",
+          "val": 90550,
+          "prev": 90630.69554352353,
+          "delta": -0.08903776258097906,
+          "ewmaNew": 90607.63967394538,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "used": [
+        {
+          "source": "Herat_Tomen",
+          "val": 90680,
+          "prev": 90680,
+          "delta": 0,
+          "ewmaNew": 90680,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        },
+        {
+          "source": "Dollar_Tehran3bze",
+          "val": 90771,
+          "prev": 90771.15618492296,
+          "delta": -0.00017206448560402876,
+          "ewmaNew": 90771.11156065925,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        },
+        {
+          "source": "Dollar_Sulaymaniyah",
+          "val": 90286,
+          "prev": 90285.89587671803,
+          "delta": 0.00011532618795495608,
+          "ewmaNew": 90285.92562622717,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        },
+        {
+          "source": "Bonbast_USD",
+          "val": 90550,
+          "prev": 90630.69554352353,
+          "delta": -0.08903776258097906,
+          "ewmaNew": 90607.63967394538,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        }
+      ],
+      "removed": [],
+      "delta_combined_pct": -0.022273625219657034
+    },
+    "usdt": {
+      "anchor": 90000,
+      "offset_pct": 0,
+      "med_abs_delta_pct": 0.10486190464261691,
+      "median_delta_pct": 0.10486190464261691,
+      "params": {
+        "marketMin": 0.15,
+        "flatCut": 0.02,
+        "halfGap": 5,
+        "dropGap": 10,
+        "ttl_minutes": 45,
+        "outlier_pct": 5
+      },
+      "items_all": [
+        {
+          "source": "AbanTetherPrice",
+          "val": 91000,
+          "prev": 90903.16534777176,
+          "delta": 0.10652506087964753,
+          "ewmaNew": 90930.83239126555,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "TetherLand",
+          "val": 90900,
+          "prev": 90806.28904623074,
+          "delta": 0.1031987484055863,
+          "ewmaNew": 90833.06360445052,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "items_active": [
+        {
+          "source": "AbanTetherPrice",
+          "val": 91000,
+          "prev": 90903.16534777176,
+          "delta": 0.10652506087964753,
+          "ewmaNew": 90930.83239126555,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "TetherLand",
+          "val": 90900,
+          "prev": 90806.28904623074,
+          "delta": 0.1031987484055863,
+          "ewmaNew": 90833.06360445052,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "items_filtered": [
+        {
+          "source": "AbanTetherPrice",
+          "val": 91000,
+          "prev": 90903.16534777176,
+          "delta": 0.10652506087964753,
+          "ewmaNew": 90930.83239126555,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        },
+        {
+          "source": "TetherLand",
+          "val": 90900,
+          "prev": 90806.28904623074,
+          "delta": 0.1031987484055863,
+          "ewmaNew": 90833.06360445052,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z"
+        }
+      ],
+      "used": [
+        {
+          "source": "AbanTetherPrice",
+          "val": 91000,
+          "prev": 90903.16534777176,
+          "delta": 0.10652506087964753,
+          "ewmaNew": 90930.83239126555,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        },
+        {
+          "source": "TetherLand",
+          "val": 90900,
+          "prev": 90806.28904623074,
+          "delta": 0.1031987484055863,
+          "ewmaNew": 90833.06360445052,
+          "age": 25955154,
+          "ts": "2025-08-14T12:00:00Z",
+          "w": 1
+        }
+      ],
+      "removed": [],
+      "delta_combined_pct": 0.10486190464261691,
+      "avg_from_sources": 90950,
+      "from_usd": 89980,
+      "decision": {
+        "mode": "avg_of(avg_sources,from_usd)",
+        "avg_sources": 90950,
+        "from_usd": 89980,
+        "diff_pct": 1.078,
+        "reconcile_pct": 1
+      }
+    }
+  },
+  "fx": {
+    "usd_to_x_rates": {
+      "CNY": 7.1706,
+      "EUR": 0.85543,
+      "GBP": 0.73653,
+      "JPY": 146.54,
+      "TRY": 40.787
+    }
+  },
+  "outputs": {
+    "USD_TMN": 89980,
+    "USDT_TMN": 90465,
+    "spot_subset": {
+      "USD_TMN": 89980,
+      "USDT_TMN": 90465,
+      "EUR_TMN": 105187,
+      "GBP_TMN": 122167,
+      "TRY_TMN": 2206,
+      "JPY_TMN": 614,
+      "CNY_TMN": 12548,
+      "GEL_TMN": 89980,
+      "AMD_TMN": 89980
+    }
+  },
+  "ewma_after": {
+    "usd:Herat_Tomen": {
+      "ewma": 90680,
+      "ts": "2025-08-14T19:12:35.154Z"
+    },
+    "usd:Dollar_Tehran3bze": {
+      "ewma": 90771.11156065925,
+      "ts": "2025-08-14T19:12:35.154Z"
+    },
+    "usd:Dollar_Sulaymaniyah": {
+      "ewma": 90285.92562622717,
+      "ts": "2025-08-14T19:12:35.154Z"
+    },
+    "usd:Bonbast_USD": {
+      "ewma": 90607.63967394538,
+      "ts": "2025-08-14T19:12:35.154Z"
+    },
+    "usdt:AbanTetherPrice": {
+      "ewma": 90930.83239126555,
+      "ts": "2025-08-14T19:12:35.154Z"
+    },
+    "usdt:TetherLand": {
+      "ewma": 90833.06360445052,
+      "ts": "2025-08-14T19:12:35.154Z"
+    }
+  }
+}

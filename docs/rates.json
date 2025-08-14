@@ -1,8 +1,8 @@
 {
-  "updated_at": "2025-08-14T19:08:50.675Z",
+  "updated_at": "2025-08-14T19:12:36.987Z",
   "delta": {
-    "usd_pct": -0.031,
-    "usdt_pct": 0.147,
+    "usd_pct": -0.022,
+    "usdt_pct": 0.105,
     "quality": {
       "usd": {
         "active": 4
@@ -13,15 +13,15 @@
     }
   },
   "spot": {
-    "USD_TMN": 89972,
-    "USDT_TMN": 90461,
-    "EUR_TMN": 105178,
-    "GBP_TMN": 122157,
+    "USD_TMN": 89980,
+    "USDT_TMN": 90465,
+    "EUR_TMN": 105187,
+    "GBP_TMN": 122167,
     "TRY_TMN": 2206,
     "JPY_TMN": 614,
-    "CNY_TMN": 12547,
-    "GEL_TMN": 89972,
-    "AMD_TMN": 89972
+    "CNY_TMN": 12548,
+    "GEL_TMN": 89980,
+    "AMD_TMN": 89980
   },
   "sources": {
     "usd_used": [
@@ -46,7 +46,7 @@
       {
         "source": "Bonbast_USD",
         "val": 90550,
-        "delta": -0.125,
+        "delta": -0.089,
         "w": 1
       }
     ],
@@ -55,13 +55,13 @@
       {
         "source": "AbanTetherPrice",
         "val": 91000,
-        "delta": 0.149,
+        "delta": 0.107,
         "w": 1
       },
       {
         "source": "TetherLand",
         "val": 90900,
-        "delta": 0.145,
+        "delta": 0.103,
         "w": 1
       }
     ],
