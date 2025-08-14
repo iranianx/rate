@@ -1,0 +1,25 @@
+{
+  "version": "v1",
+  "tz": "Europe/Istanbul",
+  "unit": "TMN",
+  "close_time": "23:00",
+  "rounding": {
+    "tier1": { "min": 50000, "step": 100 },
+    "tier2": { "min": 10000, "max": 49999, "step": 50 },
+    "tier3": { "min": 1000, "max": 9999, "step": 10 },
+    "tier4": { "max": 999, "step": 1 }
+  },
+  "outlier": {
+    "usd_window_pct": 5,
+    "usdt_vs_usd_pct": 3
+  },
+  "reconcile": {
+    "usdt_vs_usd_pct": 1
+  },
+  "trend": {
+    "green_range_abs_pct": 1
+  },
+  "logging": {
+    "exclude_reasons": ["closed", "no_data", "outlier_5pct", "outlier_3pct_vs_usd"]
+  }
+}
