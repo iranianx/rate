@@ -5,17 +5,16 @@
   "version": "v1",
   "unit_all": "TMN",
   "sources": {
-    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
-    "usdt": ["AbanTetherPrice", "TetherLand"],
-    "crypto_usd": ["ref_market"] 
+    "usdt_pairs": ["binance", "okx", "bybit"]
+  },
+  "depends_on": {
+    "USDT_TMN": "rec/daily/f1dx.json:USDT"
   },
   "items": [
-    { "code": "BTC",  "name": "Bitcoin",       "value": null, "rule_key": "BTC",  "notes": "" },
-    { "code": "ETH",  "name": "Ethereum",      "value": null, "rule_key": "ETH",  "notes": "" },
-    { "code": "SOL",  "name": "Solana",        "value": null, "rule_key": "SOL",  "notes": "" },
-    { "code": "BNB",  "name": "BNB",           "value": null, "rule_key": "BNB",  "notes": "" },
-    { "code": "TRX",  "name": "Tron",          "value": null, "rule_key": "TRX",  "notes": "" },
-    { "code": "USDT", "name": "Tether (USDT)", "value": null, "rule_key": "USDT", "notes": "" },
-    { "code": "USDC", "name": "USD Coin",      "value": null, "rule_key": "USDC", "notes": "" }
+    { "code": "BTC",  "name": "Bitcoin",        "value": null, "rule_key": "BTC",  "notes": "" },
+    { "code": "ETH",  "name": "Ethereum",       "value": null, "rule_key": "ETH",  "notes": "" },
+    { "code": "SOL",  "name": "Solana",         "value": null, "rule_key": "SOL",  "notes": "" },
+    { "code": "USDT", "name": "Tether (USDT)",  "value": null, "rule_key": "USDT", "notes": "should match/align with f1dx.USDT" },
+    { "code": "USDC", "name": "USD Coin",       "value": null, "rule_key": "USDC", "notes": "" }
   ]
 }
