@@ -1,4 +1,4 @@
-name: Fetch Sources (manual)
+name: Sources (manual)
 
 on:
   workflow_dispatch: {}
@@ -18,20 +18,28 @@ jobs:
         with:
           node-version: "20"
 
+      # نصب puppeteer برای اسکرین‌شات (اختیاری)
+      - name: Install puppeteer
+        run: npm i puppeteer@22
+
       - name: Fetch sources (Telegram & Bonbast)
+        env:
+          SRC_SCREENSHOT: "1"   # اگر اسکرین‌شات نمی‌خواهی، این خط را حذف کن
         run: node scripts/sources.mjs
 
       - name: Commit sources.json
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/sources.json || true
-          git commit -m "fetch: update data/sources.json" || echo "no changes"
+          git add data/sources.json docs/snaps || true
+          git commit -m "fetch: update data/sources.json + snaps" || echo "no changes"
 
       - name: Upload sources artifact
         uses: actions/upload-artifact@v4
         with:
           name: fetched-sources
-          path: data/sources.json
+          path: |
+            data/sources.json
+            docs/snaps
           if-no-files-found: ignore
           retention-days: 3
