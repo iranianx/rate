@@ -10,59 +10,105 @@ const OUT_PATH = path.join(DATA_DIR, "sources.json");
 const providers = JSON.parse(fs.readFileSync(PROVIDERS_PATH, "utf-8"));
 const headers = { "user-agent": "IranianX/1.0 (+https://github.com/iranianx/rate)" };
 
-// --- ابزارهای کمکی
+// --- نگاشت کاننیکال برای هم‌خوانی با state/ewma.json
+const CANON = {
+  dollar_tehran3bze: "Dollar_Tehran3bze",
+  dollar_sulaymaniyah: "Dollar_Sulaymaniyah",
+  bonbast: "Bonbast_USD",
+};
+const canonKey = (k) => CANON[k] || k;
+
+// --- ابزارهای کمکی ارقام/متن
 const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
 function toLatinDigits(s) {
   if (!s) return "";
   return String(s)
     .replace(/[۰-۹]/g, d => String(persianDigits.indexOf(d)))
-    .replace(/[\u066B\u066C]/g, ",") // Arabic decimal/sep
+    .replace(/[\u066B\u066C]/g, ",") // Arabic decimal/group separators → commas
     .replace(/\u200c/g, "");         // ZWNJ
 }
+
 function stripHtml(s) {
   return toLatinDigits(
-    s.replace(/<br\s*\/?>/gi, "\n")
-     .replace(/<\/?[^>]+>/g, " ")
-     .replace(/&nbsp;/g, " ")
-     .replace(/&amp;/g, "&")
-     .replace(/\s+/g, " ")
+    String(s)
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/?[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ")
   ).trim();
 }
-function firstPriceFrom(text) {
-  const t = toLatinDigits(text).replace(/[\s,٬]/g, "");
-  const m = t.match(/(\d{4,6})/); // چهار تا شش رقم (۹xxxx ~ ۱xxxxx)
-  return m ? Number(m[1]) : null;
+
+function normalizeTelegramUrl(url) {
+  if (!url) return url;
+  // t.me/channel → t.me/s/channel  (نسخهٔ قابل خزش)
+  if (/t\.me\/(?!s\/)/.test(url)) return url.replace("t.me/", "t.me/s/");
+  return url;
 }
+
+// --- یافتن عدد: ترجیحاً نزدیک به کلمات کلیدی «نقد/USDT/…»، در غیر این صورت اولین عدد منطقی
+function extractPricePreferKeywords(text, includeWords) {
+  const t = toLatinDigits(text);
+
+  // الگوی عدد با جداکننده‌های مختلف: 1–3 رقم + گروه‌های 3تایی یا یک تکهٔ 4–6 رقمی
+  const numRe = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{4,6})/g;
+
+  // 1) تلاش: نزدیک به کلمات کلیدی
+  for (const w of includeWords || []) {
+    const idx = t.indexOf(w);
+    if (idx === -1) continue;
+    // پنجرهٔ اطراف کلید (±60 کاراکتر)
+    const lo = Math.max(0, idx - 60);
+    const hi = Math.min(t.length, idx + w.length + 60);
+    const win = t.slice(lo, hi);
+    let m;
+    while ((m = numRe.exec(win)) !== null) {
+      const n = Number(m[1].replace(/[,\.\s٬]/g, ""));
+      if (n >= 1000 && n <= 200000) return n;
+    }
+  }
+
+  // 2) fallback: اولین عدد منطقی در کل متن
+  let m;
+  while ((m = numRe.exec(t)) !== null) {
+    const n = Number(m[1].replace(/[,\.\s٬]/g, ""));
+    if (n >= 1000 && n <= 200000) return n;
+  }
+  return null;
+}
+
 async function fetchText(url) {
   const r = await fetch(url, { headers });
   if (!r.ok) throw new Error("HTTP " + r.status + " for " + url);
   return await r.text();
 }
 
-// --- قوانین انتخاب پیام‌ها (فقط نقد/کف مشهد؛ حذف فردایی/آتی)
+// --- قوانین تلگرام: فقط «نقدی/اسکناس/کف مشهد»، حذف «فردایی/آتی»
 const TG_RULES = {
-  Herat_Tomen:         { include: ["نقد", "نقدی", "کف مشهد", "اسکناس"], exclude: ["فردا", "فردایی", "آتی"] },
-  Dollar_Tehran3bze:   { include: ["نقد", "کف مشهد", "اسکناس"],         exclude: ["فردا", "فردایی", "آتی"] },
-  Dollar_Sulaymaniyah: { include: ["نقد", "کف مشهد", "اسکناس"],         exclude: ["فردا", "فردایی", "آتی"] },
-  AbanTetherPrice:     { include: ["نقد", "USDT", "تتر", "اسکناس"],      exclude: ["فردا", "فردایی", "آتی"] },
-  TetherLand:          { include: ["نقد", "USDT", "تتر", "اسکناس"],      exclude: ["فردا", "فردایی", "آتی"] },
+  Herat_Tomen:         { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
+  Dollar_Tehran3bze:   { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
+  Dollar_Sulaymaniyah: { include: ["نقدی", "مشهد", "کف مشهد", "کف"], exclude: ["فردا", "فردایی", "آتی"] },
+  AbanTetherPrice:     { include: ["USDT", "تتر", "نقدی", "نقد", "اسکناس"], exclude: ["فردا", "فردایی", "آتی"] },
+  TetherLand:          { include: ["نرخ", "تتر"], exclude: ["فردا", "فردایی", "آتی"] },
 };
 
 function passRules(text, key) {
   const cfg = TG_RULES[key] || TG_RULES.Herat_Tomen;
   const t = toLatinDigits(text);
-  const okInc = cfg.include.some(w => t.includes(w));
-  const noExc = !cfg.exclude.some(w => t.includes(w));
-  return okInc && noExc;
+  const hasInc = cfg.include.some(w => t.includes(w));
+  const hasExc = cfg.exclude.some(w => t.includes(w));
+  return hasInc && !hasExc;
 }
 
-// --- پارس تلگرام: آخرین پیام «مجاز» + استخراج عدد و زمان
+// --- پارس تلگرام: جدیدترین پیامِ «مجاز» + استخراج عدد نزدیک به کلمهٔ کلیدی
 async function pickFromTelegram(key, url) {
-  const html = await fetchText(url);
-  // پیام‌ها را به بلوک‌ها بشکن
-  const blocks = html.split('tgme_widget_message_wrap').slice(1);
-  // از بالا به پایین می‌رویم (تلگرام معمولاً جدیدترین‌ها را بالاتر می‌گذارد)
-  for (const raw of blocks) {
+  const html = await fetchText(normalizeTelegramUrl(url));
+  const parts = html.split("tgme_widget_message_wrap").slice(1);
+
+  const cfg = TG_RULES[key] || TG_RULES.Herat_Tomen;
+  const candidates = [];
+
+  for (const raw of parts) {
     const textHtmlMatch = raw.match(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i);
     if (!textHtmlMatch) continue;
     const text = stripHtml(textHtmlMatch[1]);
@@ -73,24 +119,36 @@ async function pickFromTelegram(key, url) {
     const timeMatch = raw.match(/<time[^>]+datetime="([^"]+)"/i);
     const ts = timeMatch ? timeMatch[1] : new Date().toISOString();
 
-    // عدد
-    const val = firstPriceFrom(text);
-    if (val) {
-      return { source: key, val, ts, msg: text };
+    // عدد (ترجیحاً نزدیک به کلیدواژه‌ها)
+    const val = extractPricePreferKeywords(text, cfg.include);
+    if (val != null) {
+      candidates.push({ source: key, val, ts, msg: text });
     }
   }
-  return null; // چیزی مطابق قانون پیدا نشد
+
+  if (candidates.length === 0) return null;
+
+  // جدیدترین پیام
+  candidates.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  return candidates[0];
 }
 
 // --- پارس Bonbast: ستون Sell برای USD
 async function pickFromBonbast(url) {
   const html = await fetchText(url);
-  // زمان از هدر
-  const tsMatch = html.match(/(\w+\s\d{1,2},\s\d{4}\s\d{2}:\d{2}\sUTC)/i);
-  const ts = new Date().toISOString(); // اگر زمان صفحه پارس نشد
-  // شماره‌ی USD Sell
-  const rowMatch = html.match(/>USD<\/td>[\s\S]*?Sell[^0-9]*([\d,]+)[\s\S]*?Buy/i);
-  const val = rowMatch ? Number(rowMatch[1].replace(/[,٬\s]/g, "")) : null;
+
+  // تلاش برای یافتن سطر USD و ستون Sell
+  // مثال: >USD</td> ... Sell ... 93,300 ... Buy
+  const rowMatch =
+    html.match(/>USD<\/td>[\s\S]*?Sell[^0-9]*([\d,.\s٬]+)[\s\S]*?Buy/i) ||
+    html.match(/>USD<\/td>[\s\S]*?Buy[\s\S]*?Sell[^0-9]*([\d,.\s٬]+)/i); // حالت برعکس
+
+  const val = rowMatch ? Number(rowMatch[1].replace(/[,\.\s٬]/g, "")) : null;
+
+  // زمان (اختیاری؛ اگر نشد، now)
+  const tsMatch = html.match(/Last\s*Update[^<]*?(\d{1,2}:\d{2}\s*UTC)/i);
+  const ts = new Date().toISOString();
+
   if (val) return { source: "Bonbast_USD", val, ts, msg: "Bonbast USD Sell" };
   return null;
 }
@@ -98,30 +156,33 @@ async function pickFromBonbast(url) {
 async function main() {
   const out = { usd: [], usdt: [] };
 
-  // USD: هرات، تهران۳باز، سلیمانی، بون‌بست
+  // USD: هرات، تهران۳بزه، سلیمانی، بون‌بست
   for (const key of providers.groups.usd) {
     const meta = providers.providers[key] || {};
+    const srcKey = canonKey(key);
     try {
-      if (key === "Bonbast_USD") {
-        const r = await pickFromBonbast(meta.url);
-        if (r) out.usd.push(r);
+      let rec = null;
+      if ((meta.type || "").toLowerCase() === "website") {
+        rec = await pickFromBonbast(meta.url);
+        if (rec) rec.source = srcKey; // canon
       } else {
-        const r = await pickFromTelegram(key, meta.url);
-        if (r) out.usd.push(r);
+        rec = await pickFromTelegram(srcKey, meta.url); // srcKey چون قوانین بر اساس کاننیکال تعریف شده‌اند
       }
+      if (rec) out.usd.push(rec);
     } catch (e) {
-      console.error("[ERR]", key, e.message);
+      console.error("[ERR][USD]", key, e.message);
     }
   }
 
   // USDT: آبان تتر، تترلند
   for (const key of providers.groups.usdt) {
     const meta = providers.providers[key] || {};
+    const srcKey = canonKey(key);
     try {
-      const r = await pickFromTelegram(key, meta.url);
-      if (r) out.usdt.push(r);
+      const rec = await pickFromTelegram(srcKey, meta.url);
+      if (rec) out.usdt.push(rec);
     } catch (e) {
-      console.error("[ERR]", key, e.message);
+      console.error("[ERR][USDT]", key, e.message);
     }
   }
 
