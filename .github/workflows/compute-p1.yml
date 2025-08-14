@@ -36,15 +36,15 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/rates.json docs/debug/compute-report.json state/ewma.json || true
-          git commit -m "compute(p1): update rates.json, ewma.json, and debug report" || echo "no changes"
+          git add docs/rates.json docs/report.json state/ewma.json || true
+          git commit -m "compute(p1): update rates.json, ewma.json, and report" || echo "no changes"
 
       # --- (اختیاری) برای بررسی سریع در UI اکشنز
       - name: Upload debug report artifact
         uses: actions/upload-artifact@v4
         with:
           name: compute-report
-          path: docs/debug/compute-report.json
+          path: docs/report.json
           if-no-files-found: ignore
           retention-days: 7
 
