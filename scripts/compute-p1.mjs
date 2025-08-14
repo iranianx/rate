@@ -17,10 +17,9 @@ const RATES_PATH = path.join(DOCS, "rates.json");
 fs.mkdirSync(STATE_DIR, { recursive: true });
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// [S2] Debug Output Setup — تنظیم خروجی تست در docs/debug/compute-report.json
-const DEBUG_DIR  = path.join(DOCS, "debug");
-const DEBUG_FILE = path.join(DEBUG_DIR, "compute-report.json");
-fs.mkdirSync(DEBUG_DIR, { recursive: true });
+// [S2] Report Output Setup — خروجی تست در docs/report.json
+fs.mkdirSync(DOCS, { recursive: true });
+const DEBUG_FILE = path.join(DOCS, "report.json");
 
 function pick(obj, keys){
   const o = {};
@@ -256,7 +255,7 @@ async function main(){
     usdt: (sources.usdt || []).map(({ source, val, ts }) => ({ source, val, ts }))
   };
   // ذخیرهٔ فایل ساده برای بررسی سریع
-  writeJSON(path.join(DOCS, "debug", "raw-sources.json"), rawSnapshot);
+  
   // چاپ در لاگ اکشن‌ها
   console.log("RAW USD:",  rawSnapshot.usd.map(x => `${x.source}=${x.val}`).join(", "));
   console.log("RAW USDT:", rawSnapshot.usdt.map(x => `${x.source}=${x.val}`).join(", "));
