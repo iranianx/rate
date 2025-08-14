@@ -100,11 +100,11 @@ async function fetchText(url) {
 
 // --- قوانین تلگرام (طبق آنچه گفتی به‌روز شده)
 const TG_RULES = {
-  Herat_Tomen:         { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
+  Herat_Tomen:         { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "امروزی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
   Dollar_Tehran3bze:   { include: ["نقدی", "نقـدی", "نـقدی", "نقـدی", "نـقـدی", "نــقـدی", "نـــقـدی"], exclude: ["فردا", "فردایی", "آتی"] },
   Dollar_Sulaymaniyah: { include: ["نقدی", "مشهد", "کف مشهد", "کف"], exclude: ["فردا", "فردایی", "آتی"] },
-  AbanTetherPrice:     { include: ["USDT", "تتر", "نقدی", "نقد", "اسکناس"], exclude: ["فردا", "فردایی", "آتی"] },
-  TetherLand:          { include: ["نرخ", "تتر"], exclude: ["فردا", "فردایی", "آتی"] },
+  AbanTetherPrice:     { include: ["فروش", "تتر", "فروش:", "خرید:", "خرید"], exclude: ["فردا", "فردایی", "آتی"] },
+  TetherLand:          { include: ["نرخ", "تتر:", "تتر"], exclude: ["فردا", "فردایی", "آتی"] },
 };
 
 function passRules(text, key) {
