@@ -6,14 +6,18 @@ const ROOT = process.cwd();
 const DATA_DIR = path.join(ROOT, "data");
 const PROVIDERS_PATH = path.join(DATA_DIR, "providers.json");
 const OUT_PATH = path.join(DATA_DIR, "sources.json");
-const SNAPS_DIR = path.join(ROOT, "docs", "snaps"); // محل ذخیرهٔ اسکرین‌شات‌ها
+const SNAPS_DIR = path.join(ROOT, "docs", "snaps"); // محل ذخیرهٔ اسکرین‌شات‌ها (اختیاری)
 fs.mkdirSync(SNAPS_DIR, { recursive: true });
 
-const TZ = "Europe/Istanbul"; // نمایش ساعت محلی
+const TZ = "Europe/Istanbul"; // نمایش ساعت محلی در خروجی
 
 const providers = JSON.parse(fs.readFileSync(PROVIDERS_PATH, "utf-8"));
 const headers = { "user-agent": "IranianX/1.0 (+https://github.com/iranianx/rate)" };
 const dlog = (...args) => console.log("[SRC]", ...args);
+
+// Timeout/Retry قابل تنظیم از env (برای جلوگیری از گیر کردن روی درخواست‌ها)
+const HTTP_TIMEOUT_MS = Number(process.env.SRC_TIMEOUT_MS || 20000); // 20s
+const HTTP_RETRIES    = Number(process.env.SRC_RETRIES    || 2);     // 2 بار تلاش مجدد
 
 // --- نگاشت کاننیکال برای هم‌خوانی با state/ewma.json
 const CANON = {
@@ -31,6 +35,9 @@ function toLatinDigits(s) {
     .replace(/[۰-۹]/g, d => String(persianDigits.indexOf(d)))
     .replace(/[\u066B\u066C]/g, ",") // Arabic decimal/group separators → commas
     .replace(/\u200c/g, "");         // ZWNJ
+}
+function toPersianDigits(s) {
+  return String(s).replace(/\d/g, d => persianDigits[d]);
 }
 
 function stripHtml(s) {
@@ -106,10 +113,38 @@ function extractPricePreferKeywords(text, includeWords) {
   return null;
 }
 
+// --- واریانت‌های نمایش قیمت برای جستجوی بصری در اسکرین‌شات
+function priceVariants(n) {
+  const raw = String(n);
+  const withComma = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const withDot   = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const pRaw      = toPersianDigits(raw);
+  const pComma    = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "،").replace(/،/g, "٬"); // U+066C/Arabic comma → U+066C/NARROW NO-BREAK?
+  const pDot      = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "٫"); // U+066B Arabic decimal sep
+  return [raw, withComma, withDot, pRaw, pComma, pDot];
+}
+
+// --- fetch با timeout + retry
 async function fetchText(url) {
-  const r = await fetch(url, { headers });
-  if (!r.ok) throw new Error("HTTP " + r.status + " for " + url);
-  return await r.text();
+  for (let attempt = 1; attempt <= (1 + HTTP_RETRIES); attempt++) {
+    const ctl = new AbortController();
+    const id = setTimeout(() => ctl.abort(), HTTP_TIMEOUT_MS);
+    const started = Date.now();
+    try {
+      const r = await fetch(url, { headers, signal: ctl.signal });
+      clearTimeout(id);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const txt = await r.text();
+      dlog(`GET OK ${url} (${Date.now() - started}ms)`);
+      return txt;
+    } catch (e) {
+      clearTimeout(id);
+      dlog(`GET FAIL ${url} (try ${attempt}/${1 + HTTP_RETRIES}) → ${e.name || ""} ${e.message || e}`);
+      if (attempt === (1 + HTTP_RETRIES)) return null; // give up
+      await new Promise(res => setTimeout(res, 500));   // backoff کوتاه
+    }
+  }
+  return null;
 }
 
 // --- قوانین تلگرام (بر اساس فهرستِ شما)
@@ -126,7 +161,6 @@ function passRules(text, key) {
   const t = normFa(text);
   const incWords = (cfg.include || []).map(normFa);
   const excWords = (cfg.exclude || []).map(normFa);
-
   const hasInc = incWords.some(w => w && t.includes(w));
   const hasExc = excWords.some(w => w && t.includes(w));
   return hasInc && !hasExc;
@@ -135,8 +169,11 @@ function passRules(text, key) {
 // --- پارس تلگرام: جدیدترین پیامِ «مجاز» + استخراج عدد نزدیک به کلمهٔ کلیدی
 async function pickFromTelegram(key, url) {
   const html = await fetchText(normalizeTelegramUrl(url));
-  const parts = html.split("tgme_widget_message_wrap").slice(1);
-  dlog(`TG ${key}: blocks=${parts.length}`);
+  if (!html) { dlog(`NOHTML TG ${key}`); return null; }
+
+  const partsRaw = html.split("tgme_widget_message_wrap").slice(1);
+  const parts = partsRaw.slice(0, 60); // حداکثر 60 پیام اخیر
+  dlog(`TG ${key}: blocks=${parts.length}/${partsRaw.length}`);
 
   const cfg = TG_RULES[key] || TG_RULES.Herat_Tomen;
   const candidates = [];
@@ -145,7 +182,6 @@ async function pickFromTelegram(key, url) {
     const textHtmlMatch = raw.match(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i);
     if (!textHtmlMatch) continue;
     const text = stripHtml(textHtmlMatch[1]);
-
     if (!passRules(text, key)) continue;
 
     // زمان از <time datetime="...">
@@ -172,6 +208,7 @@ async function pickFromTelegram(key, url) {
 // --- پارس Bonbast: ستون Sell برای USD (+ زمان در حد امکان)
 async function pickFromBonbast(url) {
   const html = await fetchText(url);
+  if (!html) { dlog("NOHTML Bonbast"); return null; }
 
   // سطر USD و ستون Sell
   const rowMatch =
@@ -186,7 +223,7 @@ async function pickFromBonbast(url) {
     html.match(/Last\s*Update[^<]*?(\w+\s+\d{1,2},\s*\d{4}\s+\d{1,2}:\d{2}\s*UTC)/i) ||
     html.match(/Updated[^<]*?(\w+\s+\d{1,2},\s*\d{4}\s+\d{1,2}:\d{2}\s*UTC)/i);
   if (lastUpd && lastUpd[1]) {
-    const maybe = new Date(lastUpd[1] + ""); // مرورگر معمولاً متوجه فرمت انگلیسی می‌شود
+    const maybe = new Date(lastUpd[1] + "");
     if (!isNaN(maybe)) tsUTC = maybe.toISOString();
   }
   const tsLocal = toTZISO(tsUTC, TZ);
@@ -210,12 +247,14 @@ async function maybeScreenshotTelegram(key, url, price, tsLocal) {
   const gotoUrl = normalizeTelegramUrl(url);
   await page.goto(gotoUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
-  // پیدا کردن پیامی که price داخل متنش هست
-  const handle = await page.evaluateHandle((priceStr) => {
+  const variants = priceVariants(price);
+  const handle = await page.evaluateHandle((vlist) => {
     const blocks = Array.from(document.querySelectorAll(".tgme_widget_message_wrap"));
-    const target = blocks.find(b => (b.innerText || "").replace(/\s+/g, "").includes(String(priceStr)));
-    return target || null;
-  }, String(price));
+    return blocks.find(b => {
+      const t = (b.innerText || "").replace(/\s+/g, "");
+      return vlist.some(v => t.includes(String(v)));
+    }) || null;
+  }, variants);
 
   if (handle) {
     const el = handle.asElement();
