@@ -9,15 +9,18 @@ const OUT_PATH = path.join(DATA_DIR, "sources.json");
 const SNAPS_DIR = path.join(ROOT, "docs", "snaps"); // محل ذخیرهٔ اسکرین‌شات‌ها (اختیاری)
 fs.mkdirSync(SNAPS_DIR, { recursive: true });
 
-const TZ = "Europe/Istanbul"; // نمایش ساعت محلی در خروجی
+const TZ = "Europe/Istanbul"; // نمایش ساعت محلی
 
 const providers = JSON.parse(fs.readFileSync(PROVIDERS_PATH, "utf-8"));
 const headers = { "user-agent": "IranianX/1.0 (+https://github.com/iranianx/rate)" };
 const dlog = (...args) => console.log("[SRC]", ...args);
 
-// Timeout/Retry قابل تنظیم از env (برای جلوگیری از گیر کردن روی درخواست‌ها)
+// Timeout/Retry و TTL قابل تنظیم از env
 const HTTP_TIMEOUT_MS = Number(process.env.SRC_TIMEOUT_MS || 20000); // 20s
 const HTTP_RETRIES    = Number(process.env.SRC_RETRIES    || 2);     // 2 بار تلاش مجدد
+const TTL_USD_HRS     = Number(process.env.SRC_TTL_USD_HRS  || 24);  // تازه‌بودن پیام‌های USD
+const TTL_USDT_HRS    = Number(process.env.SRC_TTL_USDT_HRS || 12);  // تازه‌بودن پیام‌های USDT
+const TTL_BB_HRS      = Number(process.env.SRC_TTL_BB_HRS   || 6);   // تازگی Bonbast
 
 // --- نگاشت کاننیکال برای هم‌خوانی با state/ewma.json
 const CANON = {
@@ -80,6 +83,8 @@ function toTZISO(iso, tz = TZ) {
   }).formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {});
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
 }
+const H = (h) => h * 3600 * 1000;
+const isFresh = (ts, maxHrs) => (Date.now() - new Date(ts).getTime()) <= H(maxHrs);
 
 // --- یافتن عدد: ترجیحاً نزدیک به کلمات کلیدی «نقدی/USDT/…»، در غیر این صورت اولین عدد منطقی
 function extractPricePreferKeywords(text, includeWords) {
@@ -119,8 +124,8 @@ function priceVariants(n) {
   const withComma = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const withDot   = raw.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   const pRaw      = toPersianDigits(raw);
-  const pComma    = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "،").replace(/،/g, "٬"); // U+066C/Arabic comma → U+066C/NARROW NO-BREAK?
-  const pDot      = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "٫"); // U+066B Arabic decimal sep
+  const pComma    = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "،").replace(/،/g, "٬");
+  const pDot      = pRaw.replace(/\B(?=(\d{3})+(?!\d))/g, "٫");
   return [raw, withComma, withDot, pRaw, pComma, pDot];
 }
 
@@ -167,7 +172,7 @@ function passRules(text, key) {
 }
 
 // --- پارس تلگرام: جدیدترین پیامِ «مجاز» + استخراج عدد نزدیک به کلمهٔ کلیدی
-async function pickFromTelegram(key, url) {
+async function pickFromTelegram(kind, key, url) {
   const html = await fetchText(normalizeTelegramUrl(url));
   if (!html) { dlog(`NOHTML TG ${key}`); return null; }
 
@@ -198,14 +203,21 @@ async function pickFromTelegram(key, url) {
 
   if (candidates.length === 0) return null;
 
-  // جدیدترین پیام
+  // جدیدترین پیامِ تازه (با TTL مناسب)
+  const ttlHrs = kind === "usdt" ? TTL_USDT_HRS : TTL_USD_HRS;
   candidates.sort((a, b) => new Date(b.ts) - new Date(a.ts));
-  const pick = candidates[0];
-  dlog(`TG ${key} PICK: ts=${pick.ts} (local=${pick.ts_local}) val=${pick.val} msg="${(pick.msg || "").slice(0, 80)}..."`);
-  return pick;
+  const fresh = candidates.find(c => isFresh(c.ts, ttlHrs));
+  if (!fresh) {
+    dlog(`STALE TG ${key}: newest=${candidates[0].ts} (> ${ttlHrs}h) → skip`);
+    return null;
+  }
+  dlog(`TG ${key} PICK: ts=${fresh.ts} (local=${fresh.ts_local}) val=${fresh.val} msg="${(fresh.msg || "").slice(0, 80)}..."`);
+  return fresh;
 }
 
-// --- پارس Bonbast: ستون Sell برای USD (+ زمان در حد امکان)
+// --- پارس Bonbast: ستون Sell برای USD (+ زمان و تازگی)
+function plausibleToman(n) { return n >= 70000 && n <= 140000; }
+
 async function pickFromBonbast(url) {
   const html = await fetchText(url);
   if (!html) { dlog("NOHTML Bonbast"); return null; }
@@ -214,7 +226,6 @@ async function pickFromBonbast(url) {
   const rowMatch =
     html.match(/>USD<\/td>[\s\S]*?Sell[^0-9]*([\d,.\s٬]+)[\s\S]*?Buy/i) ||
     html.match(/>USD<\/td>[\s\S]*?Buy[\s\S]*?Sell[^0-9]*([\d,.\s٬]+)/i);
-
   const val = rowMatch ? Number(rowMatch[1].replace(/[,\.\s٬]/g, "")) : null;
 
   // زمان (Last Update ... UTC) — اگر یافت نشد، now
@@ -228,11 +239,17 @@ async function pickFromBonbast(url) {
   }
   const tsLocal = toTZISO(tsUTC, TZ);
 
-  if (val) {
-    dlog(`BB USD SELL: ${val} (ts=${tsUTC}, local=${tsLocal})`);
-    return { source: "Bonbast_USD", val, ts: tsUTC, ts_local: tsLocal, tz: TZ, msg: "Bonbast USD Sell" };
+  if (!val || !plausibleToman(val)) {
+    dlog(`SKIP Bonbast: val=${val} plausible=${!!val && plausibleToman(val)} ts=${tsUTC}`);
+    return null;
   }
-  return null;
+  if (!isFresh(tsUTC, TTL_BB_HRS)) {
+    dlog(`STALE Bonbast: ts=${tsUTC} (> ${TTL_BB_HRS}h) → skip`);
+    return null;
+  }
+
+  dlog(`BB USD SELL: ${val} (ts=${tsUTC}, local=${tsLocal})`);
+  return { source: "Bonbast_USD", val, ts: tsUTC, ts_local: tsLocal, tz: TZ, msg: "Bonbast USD Sell" };
 }
 
 // --- اسکرین‌شات: اختیاری با puppeteer (SRC_SCREENSHOT=1)
@@ -302,7 +319,7 @@ async function main() {
         }
       } else {
         // srcKey چون قوانین بر اساس کاننیکال تعریف شده‌اند
-        rec = await pickFromTelegram(srcKey, meta.url);
+        rec = await pickFromTelegram("usd", srcKey, meta.url);
         if (rec) {
           out.usd.push({ ...rec, url: normalizeTelegramUrl(meta.url) });
           await maybeScreenshotTelegram(srcKey, meta.url, rec.val, rec.ts_local);
@@ -318,7 +335,7 @@ async function main() {
     const meta = providers.providers[key] || {};
     const srcKey = canonKey(key);
     try {
-      const rec = await pickFromTelegram(srcKey, meta.url);
+      const rec = await pickFromTelegram("usdt", srcKey, meta.url);
       if (rec) {
         out.usdt.push({ ...rec, url: normalizeTelegramUrl(meta.url) });
         await maybeScreenshotTelegram(srcKey, meta.url, rec.val, rec.ts_local);
