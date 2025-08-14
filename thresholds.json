@@ -1,7 +1,36 @@
 {
-  "flat_cut_abs_pct": 0.02,
-  "market_min_median": 0.15,
-  "half_weight_gap_pct": 5.0,
-  "drop_gap_pct": 10.0,
-  "ttl_minutes": 45
+  "version": "v1",
+  "tz": "Europe/Istanbul",
+  "unit": "TMN",
+
+  "close_time": "23:00", 
+
+  "rounding": {
+    "tier1": { "min": 50000, "step": 100 },          // ≥ 50,000 → نزدیک‌ترین 100
+    "tier2": { "min": 10000, "max": 49999, "step": 50 },   // 10,000..49,999 → 50
+    "tier3": { "min": 1000,  "max": 9999,  "step": 10 },   // 1,000..9,999 → 10
+    "tier4": { "max": 999,   "step": 1 }                   // < 1,000 → عدد صحیح
+  },
+
+  "outlier": {
+    "usd_window_pct": 5,      // پرت USD: خارج از ±5٪ بازه min..max
+    "usdt_vs_usd_pct": 3      // حذف منبع USDT اگر >3٪ با USDT مرجع (از USD) اختلاف داشت
+  },
+
+  "reconcile": {
+    "usdt_vs_usd_pct": 1      // اگر میانگین USDT و USDTِ مرجع >±1٪ اختلاف داشت → میانگین دوبارهٔ این دو
+  },
+
+  "trend": {
+    "green_range_abs_pct": 1  // |delta| ≤ 1٪ → سبز ؛ >+1٪ → آبی ؛ <−1٪ → قرمز
+  },
+
+  "logging": {
+    "exclude_reasons": [
+      "closed",
+      "no_data",
+      "outlier_5pct",
+      "outlier_3pct_vs_usd"
+    ]
+  }
 }
