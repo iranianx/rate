@@ -95,7 +95,8 @@ function filterOutliers5pct(items, pct = 5) {
     const tooHigh = it.val > hi * maxO;
 
     if (tooLow || tooHigh) {
-      outliers.push({ ...it, reason: "outlier±5%" });
+      // reason هماهنگ با تنظیم و لاگ: outlier_5pct یا outlier_3pct و ...
+      outliers.push({ ...it, reason: `outlier_${pct}pct` });
     } else {
       kept.push(it);
     }
@@ -109,6 +110,9 @@ function computeCombinedDelta(kind, sources, ewmaState) {
   const ttl_ms = (TH.ttl_minutes ?? 45) * 60_000;
   const now = Date.now();
   const anchor = BASELINE[(kind === "usd" ? "USD_TMN" : "USDT_TMN")].anchor;
+
+  // درصد پرت از thresholds.json یا پیش‌فرض 5
+  const outlierPct = (TH.outlier && TH.outlier.usd_window_pct) ?? 5;
 
   // آیتم‌های خام با prev/ewmaNew/age
   const items = (sources[kind] || []).map(s => {
@@ -135,15 +139,15 @@ function computeCombinedDelta(kind, sources, ewmaState) {
           halfGap:   TH.half_weight_gap_pct ?? 5.0,
           dropGap:   TH.drop_gap_pct ?? 10.0,
           ttl_minutes: TH.ttl_minutes ?? 45,
-          outlier_pct: 5
+          outlier_pct: outlierPct
         },
         note: "no-active"
       }
     };
   }
 
-  // --- حذف پرت‌های ±۵٪ نسبت به بازهٔ سایر منابع
-  const { kept: activeNoOutliers, outliers } = filterOutliers5pct(active, 5);
+  // --- حذف پرت‌ها با درصد تنظیم‌شده
+  const { kept: activeNoOutliers, outliers } = filterOutliers5pct(active, outlierPct);
   active = activeNoOutliers;
 
   // حذف منابع فلت وقتی بازار واقعاً حرکت دارد
@@ -180,7 +184,14 @@ function computeCombinedDelta(kind, sources, ewmaState) {
     filtered,
     outliers, // پرت‌ها برای دیباگ
     medAbs, m,
-    params: { marketMin, flatCut, halfGap, dropGap, ttl_minutes: TH.ttl_minutes ?? 45, outlier_pct: 5 }
+    params: {
+      marketMin,
+      flatCut,
+      halfGap,
+      dropGap,
+      ttl_minutes: TH.ttl_minutes ?? 45,
+      outlier_pct: outlierPct
+    }
   };
 
   // به‌روزرسانی EWMA state
@@ -262,15 +273,30 @@ async function main(){
   let USDT_decision = { mode: "baseline", avg_sources: null, from_usd: USDT_from_USD, diff_pct: null };
 
   if (avgUSDT_from_sources != null && isFinite(avgUSDT_from_sources)) {
+    // درصد آشتی USDT↔USD از thresholds.json (پیش‌فرض: 1%)
+    const reconcilePct = (TH.reconcile && TH.reconcile.usdt_vs_usd_pct) ?? 1.0;
+
     const diff_pct = Math.abs(avgUSDT_from_sources / USDT_from_USD - 1) * 100;
-    if (diff_pct <= 1.0) {
-      // اختلاف ≤ ±۱٪ → نگه‌داشتن میانگین منابع
+    if (diff_pct <= reconcilePct) {
+      // اختلاف ≤ آستانه → نگه‌داشتن میانگین منابع
       USDT_TMN = roundInt(avgUSDT_from_sources);
-      USDT_decision = { mode: "avg_sources", avg_sources: +avgUSDT_from_sources.toFixed(3), from_usd: USDT_from_USD, diff_pct: +diff_pct.toFixed(3) };
+      USDT_decision = {
+        mode: "avg_sources",
+        avg_sources: +avgUSDT_from_sources.toFixed(3),
+        from_usd: USDT_from_USD,
+        diff_pct: +diff_pct.toFixed(3),
+        reconcile_pct: reconcilePct
+      };
     } else {
-      // اختلاف > ±۱٪ → میانگین دوبارهٔ این دو عدد
-      USDT_TMN = roundInt( (avgUSDT_from_sources + USDT_from_USD) / 2 );
-      USDT_decision = { mode: "avg_of(avg_sources,from_usd)", avg_sources: +avgUSDT_from_sources.toFixed(3), from_usd: USDT_from_USD, diff_pct: +diff_pct.toFixed(3) };
+      // اختلاف > آستانه → میانگین دوبارهٔ این دو عدد
+      USDT_TMN = roundInt((avgUSDT_from_sources + USDT_from_USD) / 2);
+      USDT_decision = {
+        mode: "avg_of(avg_sources,from_usd)",
+        avg_sources: +avgUSDT_from_sources.toFixed(3),
+        from_usd: USDT_from_USD,
+        diff_pct: +diff_pct.toFixed(3),
+        reconcile_pct: reconcilePct
+      };
     }
   }
 
