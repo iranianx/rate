@@ -1,7 +1,15 @@
 {
-  "version": 1,
-  "list_id": "gdx",
+  "asof": "YYYY-MM-DD",
   "tz": "Europe/Istanbul",
-  "day": null,
-  "rows": []
+  "updated_at": "YYYY-MM-DDThh:mm:ss+03:00",
+  "version": "v1",
+  "unit_all": "TMN",
+  "sources": {
+    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
+    "metal_usd": ["ref_metal"] 
+  },
+  "items": [
+    { "code": "XAU", "name": "Gold (troy oz)",   "value": null, "rule_key": "XAU", "notes": "" },
+    { "code": "XAG", "name": "Silver (troy oz)", "value": null, "rule_key": "XAG", "notes": "" }
+  ]
 }
