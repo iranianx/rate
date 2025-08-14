@@ -28,25 +28,37 @@ jobs:
         with:
           node-version: "20"
 
-      # --- Compute: قواعد 1–5 → تولید/به‌روزرسانی docs/rates.json و گزارش دیباگ
+      # --- NEW: جمع‌آوری ورودی‌ها از تلگرام/Bonbast → data/sources.json
+      - name: Fetch sources (Telegram & Bonbast)
+        run: node scripts/sources.mjs
+
+      # --- Compute: قواعد 1–5 → تولید/به‌روزرسانی docs/rates.json و report.json
       - name: Compute p1 deltas and update rates.json
         run: node scripts/compute-p1.mjs
 
-      - name: Commit computed artifacts (rates, ewma, debug report)
+      - name: Commit computed artifacts (rates, ewma, report, sources)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/rates.json docs/report.json state/ewma.json || true
-          git commit -m "compute(p1): update rates.json, ewma.json, and report" || echo "no changes"
+          git add data/sources.json docs/rates.json docs/report.json state/ewma.json || true
+          git commit -m "compute(p1): fetch sources, update rates.json, ewma.json, and report" || echo "no changes"
 
-      # --- (اختیاری) برای بررسی سریع در UI اکشنز
-      - name: Upload debug report artifact
+      # --- Artifactها برای بررسی سریع در UI اکشنز
+      - name: Upload report artifact
         uses: actions/upload-artifact@v4
         with:
           name: compute-report
           path: docs/report.json
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Upload sources artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetched-sources
+          path: data/sources.json
+          if-no-files-found: ignore
+          retention-days: 3
 
       # --- Render: پیش‌نیازهای canvas و تولید p1.png / p1.html
       - name: Install system deps for canvas
@@ -69,6 +81,5 @@ jobs:
 
       - name: Push changes
         run: |
-          # سعی می‌کنیم قبل از push، آخرین تغییرها را بگیریم تا کانفلیکت نشود
           git pull --rebase || true
           git push || true
