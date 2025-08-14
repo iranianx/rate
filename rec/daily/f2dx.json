@@ -1,7 +1,23 @@
 {
-  "version": 1,
-  "list_id": "f2dx",
+  "asof": "YYYY-MM-DD",
   "tz": "Europe/Istanbul",
-  "day": null,
-  "rows": []
+  "updated_at": "YYYY-MM-DDThh:mm:ss+03:00",
+  "version": "v1",
+  "unit_all": "TMN",
+  "sources": {
+    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
+    "cross": ["ref_official"] 
+  },
+  "items": [
+    { "code": "SEK", "name": "Swedish Krona",  "value": null, "rule_key": "SEK", "notes": "" },
+    { "code": "NOK", "name": "Norwegian Krone","value": null, "rule_key": "NOK", "notes": "" },
+    { "code": "DKK", "name": "Danish Krone",   "value": null, "rule_key": "DKK", "notes": "" },
+    { "code": "CHF", "name": "Swiss Franc",    "value": null, "rule_key": "CHF", "notes": "" },
+    { "code": "PLN", "name": "Polish Zloty",   "value": null, "rule_key": "PLN", "notes": "" },
+    { "code": "CZK", "name": "Czech Koruna",   "value": null, "rule_key": "CZK", "notes": "" },
+    { "code": "HUF", "name": "Hungarian Forint","value": null,"rule_key": "HUF", "notes": "" },
+    { "code": "ZAR", "name": "South African Rand","value": null,"rule_key": "ZAR","notes": "" },
+    { "code": "MXN", "name": "Mexican Peso",   "value": null, "rule_key": "MXN", "notes": "" },
+    { "code": "BRL", "name": "Brazilian Real", "value": null, "rule_key": "BRL", "notes": "" }
+  ]
 }
