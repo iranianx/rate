@@ -5,11 +5,12 @@
   "version": "v1",
   "unit_all": "TMN",
   "sources": {
-    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
-    "metal_usd": ["ref_metal"] 
+    "gold_coin": ["dollar_sulaymaniyah", "tgju", "alanchand"]
   },
   "items": [
-    { "code": "XAU", "name": "Gold (troy oz)",   "value": null, "rule_key": "XAU", "notes": "" },
-    { "code": "XAG", "name": "Silver (troy oz)", "value": null, "rule_key": "XAG", "notes": "" }
+    { "code": "G18", "name": "Gold 18K (per gram)",      "value": null, "rule_key": "G18", "notes": "" },
+    { "code": "BAF", "name": "Bahar Azadi - Full",        "value": null, "rule_key": "BAF", "notes": "" },
+    { "code": "BAN", "name": "Bahar Azadi - Half",        "value": null, "rule_key": "BAN", "notes": "" },
+    { "code": "BAQ", "name": "Bahar Azadi - Quarter",     "value": null, "rule_key": "BAQ", "notes": "" }
   ]
 }
