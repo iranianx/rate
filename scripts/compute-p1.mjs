@@ -243,25 +243,37 @@ async function getUsdRates(){
   return fallback;
 }
 
-// [S8] main(): compute & write — خواندن ورودی‌ها، محاسبات، ساخت spot و rates
+// [S8.1] main(): compute & write — خواندن ورودی‌ها، محاسبات، ساخت spot و rates
 async function main(){
   // ورودی‌های خام و وضعیت EWMA
   const sources   = readJSON(INPUT_SOURCES, { usd:[], usdt:[] });
   const ewmaState = readJSON(STATE_EWMA, {});
 
+  // --- RAW SNAPSHOT: اعداد اولیهٔ ورودی، قبل از هر فیلتری
+  const rawSnapshot = {
+    updated_at: nowISO(),
+    usd:  (sources.usd  || []).map(({ source, val, ts }) => ({ source, val, ts })),
+    usdt: (sources.usdt || []).map(({ source, val, ts }) => ({ source, val, ts }))
+  };
+  // ذخیرهٔ فایل ساده برای بررسی سریع
+  writeJSON(path.join(DOCS, "debug", "raw-sources.json"), rawSnapshot);
+  // چاپ در لاگ اکشن‌ها
+  console.log("RAW USD:",  rawSnapshot.usd.map(x => `${x.source}=${x.val}`).join(", "));
+  console.log("RAW USDT:", rawSnapshot.usdt.map(x => `${x.source}=${x.val}`).join(", "));
+
   // ترکیب دلتاها برای USD/USDT
   const cUSD  = computeCombinedDelta("usd",  sources, ewmaState);
   const cUSDT = computeCombinedDelta("usdt", sources, cUSD.newState ?? ewmaState);
 
-   // اعمال delta روی baseline ها (USD) و سپس منطق USDT⇄USD
+  // اعمال delta روی baseline ها (USD) و سپس منطق USDT⇄USD
   const USD_TMN = applyBaseline(cUSD.delta, BASELINE.USD_TMN);
 
   // 1) میانگین وزنی USDT از منابع معتبر (بعد از فیلترها)
   const avgUSDT_from_sources = (() => {
     const arr = cUSDT.used || [];
     if (!arr.length) return null;
-    const num = arr.reduce((a, b) => a + ( (b.w ?? 1) * b.val ), 0);
-    const den = arr.reduce((a, b) => a + ( (b.w ?? 1) ), 0) || 1;
+    const num = arr.reduce((a, b) => a + ((b.w ?? 1) * b.val), 0);
+    const den = arr.reduce((a, b) => a +  (b.w ?? 1), 0) || 1;
     return num / den;
   })();
 
@@ -299,13 +311,12 @@ async function main(){
       };
     }
   }
-
-  // نرخ‌های بین‌المللی USD→X
+  // [S8.2] نرخ‌های بین‌المللی USD→X
   const usdRates = await getUsdRates();
 
   // ساخت spot: 1 X = USD_TMN / (USD→X)
   const spot = { USD_TMN, USDT_TMN };
-  for (const sym of FX_SYMBOLS){
+  for (const sym of FX_SYMBOLS) {
     const r = Number(usdRates[sym]); // 1 USD = r X
     const x_tmn = r && isFinite(r) ? USD_TMN / r : USD_TMN; // fallback امن
     spot[`${sym}_TMN`] = roundInt(x_tmn);
@@ -343,6 +354,10 @@ async function main(){
   const debugReport = {
     updated_at: nowISO(),
     note: "Temporary compute report for manual verification",
+
+    // NEW: اسنپ‌شات خامِ ورودی‌ها قبل از هر فیلتری
+    raw_sources: rawSnapshot,
+
     inputs: {
       sources,
       baseline: {
@@ -366,7 +381,7 @@ async function main(){
         removed:        cUSD.removed,
         delta_combined_pct: cUSD.delta
       },
-       usdt: {
+      usdt: {
         anchor: BASELINE.USDT_TMN.anchor,
         offset_pct: BASELINE.USDT_TMN.offset_pct || 0,
         med_abs_delta_pct: cUSDT.details.medAbs,
@@ -378,7 +393,7 @@ async function main(){
         used:           cUSDT.used,
         removed:        cUSDT.removed,
         delta_combined_pct: cUSDT.delta,
-        // NEW: سیاست نهایی‌سازی USDT
+        // سیاست نهایی‌سازی USDT
         avg_from_sources:  (avgUSDT_from_sources ?? null),
         from_usd:          USDT_from_USD,
         decision:          USDT_decision
