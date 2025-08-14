@@ -69,6 +69,39 @@ function median(arr) {
   const m = Math.floor(n / 2);
   return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
+// [S4.1] Outlier filter (±5% from others' min/max)
+function filterOutliers5pct(items, pct = 5) {
+  if (!Array.isArray(items) || items.length <= 1) {
+    return { kept: items.slice(), outliers: [] };
+  }
+  const kept = [];
+  const outliers = [];
+  const lo = 1 - pct / 100;
+  const hi = 1 + pct / 100;
+
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    // سایر منابع (به‌جز خودش)
+    const others = [];
+    for (let j = 0; j < items.length; j++) {
+      if (j !== i && isFinite(items[j].val)) others.push(items[j].val);
+    }
+    if (others.length === 0) { kept.push(it); continue; }
+
+    const minO = Math.min(...others);
+    const maxO = Math.max(...others);
+
+    const tooLow  = it.val < lo * minO;
+    const tooHigh = it.val > hi * maxO;
+
+    if (tooLow || tooHigh) {
+      outliers.push({ ...it, reason: "outlier±5%" });
+    } else {
+      kept.push(it);
+    }
+  }
+  return { kept, outliers };
+}
 
 // [S5] Delta Combiner — فیلترها/وزن‌دهی منابع و به‌روزرسانی state/ewma.json
 // خروجی: { delta, used, removed, newState, details }
@@ -94,19 +127,24 @@ function computeCombinedDelta(kind, sources, ewmaState) {
     return {
       delta: 0, used: [], removed: [], newState: ewmaState,
       details: {
-        items, active: [], filtered: [],
+        items, active: [], filtered: [], outliers: [],
         medAbs: 0, m: 0,
         params: {
           marketMin: TH.market_min_median ?? 0.15, // ٪
           flatCut:   TH.flat_cut_abs_pct ?? 0.02,  // ٪
           halfGap:   TH.half_weight_gap_pct ?? 5.0,
           dropGap:   TH.drop_gap_pct ?? 10.0,
-          ttl_minutes: TH.ttl_minutes ?? 45
+          ttl_minutes: TH.ttl_minutes ?? 45,
+          outlier_pct: 5
         },
         note: "no-active"
       }
     };
   }
+
+  // --- حذف پرت‌های ±۵٪ نسبت به بازهٔ سایر منابع
+  const { kept: activeNoOutliers, outliers } = filterOutliers5pct(active, 5);
+  active = activeNoOutliers;
 
   // حذف منابع فلت وقتی بازار واقعاً حرکت دارد
   const medAbs = median(active.map(it => Math.abs(it.delta)));
@@ -121,7 +159,8 @@ function computeCombinedDelta(kind, sources, ewmaState) {
   const halfGap = TH.half_weight_gap_pct ?? 5.0;
   const dropGap = TH.drop_gap_pct ?? 10.0;
 
-  const used = [], removed = [];
+  const used = [];
+  const removed = [...outliers]; // ابتدا پرت‌ها را در removed بگذاریم
   for (const it of filtered) {
     const gap = Math.abs(it.delta - m);
     if (gap > dropGap) { removed.push({ ...it, reason: "drop>10%" }); continue; }
@@ -139,8 +178,9 @@ function computeCombinedDelta(kind, sources, ewmaState) {
     items,
     active,
     filtered,
+    outliers, // پرت‌ها برای دیباگ
     medAbs, m,
-    params: { marketMin, flatCut, halfGap, dropGap, ttl_minutes: TH.ttl_minutes ?? 45 }
+    params: { marketMin, flatCut, halfGap, dropGap, ttl_minutes: TH.ttl_minutes ?? 45, outlier_pct: 5 }
   };
 
   // به‌روزرسانی EWMA state
@@ -202,9 +242,37 @@ async function main(){
   const cUSD  = computeCombinedDelta("usd",  sources, ewmaState);
   const cUSDT = computeCombinedDelta("usdt", sources, cUSD.newState ?? ewmaState);
 
-  // اعمال delta روی baseline ها
-  const USD_TMN  = applyBaseline(cUSD.delta,  BASELINE.USD_TMN);
-  const USDT_TMN = applyBaseline(cUSDT.delta, BASELINE.USDT_TMN);
+   // اعمال delta روی baseline ها (USD) و سپس منطق USDT⇄USD
+  const USD_TMN = applyBaseline(cUSD.delta, BASELINE.USD_TMN);
+
+  // 1) میانگین وزنی USDT از منابع معتبر (بعد از فیلترها)
+  const avgUSDT_from_sources = (() => {
+    const arr = cUSDT.used || [];
+    if (!arr.length) return null;
+    const num = arr.reduce((a, b) => a + ( (b.w ?? 1) * b.val ), 0);
+    const den = arr.reduce((a, b) => a + ( (b.w ?? 1) ), 0) || 1;
+    return num / den;
+  })();
+
+  // 2) USDT از USD (برابر می‌گیریم)
+  const USDT_from_USD = USD_TMN;
+
+  // 3) تصمیم‌گیر USDT نهایی
+  let USDT_TMN = applyBaseline(cUSDT.delta, BASELINE.USDT_TMN); // fallback: همان روال قبلی
+  let USDT_decision = { mode: "baseline", avg_sources: null, from_usd: USDT_from_USD, diff_pct: null };
+
+  if (avgUSDT_from_sources != null && isFinite(avgUSDT_from_sources)) {
+    const diff_pct = Math.abs(avgUSDT_from_sources / USDT_from_USD - 1) * 100;
+    if (diff_pct <= 1.0) {
+      // اختلاف ≤ ±۱٪ → نگه‌داشتن میانگین منابع
+      USDT_TMN = roundInt(avgUSDT_from_sources);
+      USDT_decision = { mode: "avg_sources", avg_sources: +avgUSDT_from_sources.toFixed(3), from_usd: USDT_from_USD, diff_pct: +diff_pct.toFixed(3) };
+    } else {
+      // اختلاف > ±۱٪ → میانگین دوبارهٔ این دو عدد
+      USDT_TMN = roundInt( (avgUSDT_from_sources + USDT_from_USD) / 2 );
+      USDT_decision = { mode: "avg_of(avg_sources,from_usd)", avg_sources: +avgUSDT_from_sources.toFixed(3), from_usd: USDT_from_USD, diff_pct: +diff_pct.toFixed(3) };
+    }
+  }
 
   // نرخ‌های بین‌المللی USD→X
   const usdRates = await getUsdRates();
@@ -272,7 +340,7 @@ async function main(){
         removed:        cUSD.removed,
         delta_combined_pct: cUSD.delta
       },
-      usdt: {
+       usdt: {
         anchor: BASELINE.USDT_TMN.anchor,
         offset_pct: BASELINE.USDT_TMN.offset_pct || 0,
         med_abs_delta_pct: cUSDT.details.medAbs,
@@ -283,7 +351,11 @@ async function main(){
         items_filtered: cUSDT.details.filtered,
         used:           cUSDT.used,
         removed:        cUSDT.removed,
-        delta_combined_pct: cUSDT.delta
+        delta_combined_pct: cUSDT.delta,
+        // NEW: سیاست نهایی‌سازی USDT
+        avg_from_sources:  (avgUSDT_from_sources ?? null),
+        from_usd:          USDT_from_USD,
+        decision:          USDT_decision
       }
     },
     fx: {
