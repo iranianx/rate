@@ -1,12 +1,38 @@
 {
-  "usd": [
-    { "source": "Herat_Tomen",        "val": 92380, "ts": "2025-08-12T13:52:00Z" },
-    { "source": "Dollar_Tehran3bze",  "val": 92700, "ts": "2025-08-12T13:49:00Z" },
-    { "source": "Dollar_Sulaymaniyah","val": 91000, "ts": "2025-08-12T13:23:00Z" },
-    { "source": "Bonbast_USD",        "val": 92700, "ts": "2025-08-12T13:50:00Z" }
-  ],
-  "usdt": [
-    { "source": "AbanTetherPrice",    "val": 92570, "ts": "2025-08-12T13:40:00Z" },
-    { "source": "TetherLand",         "val": 92250, "ts": "2025-08-12T13:40:00Z" }
-  ]
+  "providers": {
+    "Herat_Tomen": {
+      "short": "Herat",
+      "type": "telegram",
+      "url": "https://t.me/Herat_Tomen"
+    },
+    "dollar_tehran3bze": {
+      "short": "Tehran3bze",
+      "type": "telegram",
+      "url": "https://t.me/dollar_tehran3bze"
+    },
+    "dollar_sulaymaniyah": {
+      "short": "Slemani",
+      "type": "telegram",
+      "url": "https://t.me/dollar_sulaymaniyah"
+    },
+    "bonbast": {
+      "short": "Bonbast",
+      "type": "website",
+      "url": "https://www.bon-bast.com/"
+    },
+    "AbanTetherPrice": {
+      "short": "Aban",
+      "type": "telegram",
+      "url": "https://t.me/AbanTetherPrice"
+    },
+    "TetherLand": {
+      "short": "TetherLand",
+      "type": "telegram",
+      "url": "https://t.me/TetherLand"
+    }
+  },
+  "groups": {
+    "usd": ["Herat_Tomen", "dollar_tehran3bze", "dollar_sulaymaniyah", "bonbast"],
+    "usdt": ["AbanTetherPrice", "TetherLand"]
+  }
 }
