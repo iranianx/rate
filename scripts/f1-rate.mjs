@@ -6,7 +6,7 @@ const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
 const TZ = "Europe/Istanbul";
 const MAX_PAGES_TODAY = 16;
-const MAX_PAGES_HISTORY = 40;
+const MAX_PAGES_HISTORY = 60;
 
 // ——— Channels ———
 const CH = {
@@ -28,12 +28,12 @@ const CH = {
   },
   AbanTetherPrice: {
     URL: "https://t.me/s/AbanTetherPrice",
-    INCLUDE: ["فروش","تتر","فروش:","خرید:","خرید"],
+    INCLUDE: ["فروش","تتر","فروش:","خرید:","خرید","نرخ تتر"],
     EXCLUDE: ["فردا","فردایی","آتی"],
   },
   TetherLand: {
     URL: "https://t.me/s/TetherLand",
-    INCLUDE: ["نرخ","تتر:","تتر"],
+    INCLUDE: ["نرخ","تتر:","تتر","نرخ تتر"],
     EXCLUDE: ["فردا","فردایی","آتی"],
   },
 };
@@ -90,6 +90,8 @@ function pickIntegersAll(s) {
   }
   return out;
 }
+
+// ——— tiny helpers ———
 const hasAny = (text, list) => {
   const t = normalizeFa(text);
   const arr = list.map(x => normalizeFa(x));
@@ -189,109 +191,52 @@ function extractCurrenciesFromSuli(fullText) {
   return { usd, eur };
 }
 
-// ——— HERAT helpers ———
-function extractHeratValue(fullText, include, exclude) {
+// ——— HERAT/TEHRAN helpers ———
+function extractCashValue(fullText, include, exclude) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  const candLines = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
-  const targetLines = candLines.length ? candLines : lines;
+  const cand = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
+  const target = cand.length ? cand : lines;
 
   let nums = [];
-  for (const ln of targetLines) nums.push(...pickIntegersAll(ln));
+  for (const ln of target) nums.push(...pickIntegersAll(ln));
   nums = nums.filter(Boolean);
   if (!nums.length) return null;
 
   if (nums.length >= 2) {
     const min = Math.min(...nums), max = Math.max(...nums);
     const avg = Math.round((min + max) / 2);
-    return { value: avg, min, max, unit: "تومان", raw_line: targetLines.join(" | ") };
+    return { value: avg, min, max, unit: "تومان", raw_line: target.join(" | ") };
   } else {
-    return { value: nums[0], unit: "تومان", raw_line: targetLines[0] };
+    return { value: nums[0], unit: "تومان", raw_line: target[0] };
   }
 }
 
 // ——— TETHER helpers ———
 function extractTether(fullText) {
-  // فروش/خرید را جدا بگیر، و mid را اگر هر دو موجود بود بساز
+  // پشتیبانی از: «فروش: ...»، «خرید: ...»، و «نرخ تتر ...»
   const norm = normalizeFa(fullText);
   const t = faToEnDigits(norm);
 
   const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
   const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const rateM = t.match(/نرخ\s*تتر[^0-9]*([0-9][0-9.,\s]*)/i) || t.match(/تتر\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
 
   const sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
   const buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
-
   let mid = null;
+
   if (sell && buy) mid = Math.round((sell + buy) / 2);
   else if (sell) mid = sell;
   else if (buy)  mid = buy;
+  else if (rateM) mid = Number((rateM[1] || "").replace(/[^\d]/g, ""));
 
-  if (!sell && !buy) return null;
-  return { sell: sell || null, buy: buy || null, mid, unit: "تومان", raw_line: fullText };
+  if (!sell && !buy && !rateM) return null;
+  return { sell: sell || null, buy: buy || null, mid: mid || null, unit: "تومان", raw_line: fullText };
 }
 
-// ——— Scanners ———
-async function scanSuliToday() {
-  const now = new Date();
-  const todayKey = dateKeyInTZ(now);
-
-  let before = null, pages = 0;
-  const usdToday = [], eurToday = [];
-
-  while (pages < MAX_PAGES_TODAY) {
-    const blocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, before);
-    if (!blocks.length) break;
-
-    let pageMinId = Infinity;
-    let sawAnyToday = false;
-
-    for (const block of blocks) {
-      const meta = extractMessageMeta(block);
-      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
-
-      const text = extractMessageText(block);
-      if (!text) continue;
-
-      const textNorm = normalizeFa(text);
-      // باید حتماً نیاز «کف مشهد» دیده شود، و در عین حال excludeها داخل پیام نباشند
-      if (!textNorm.includes(normalizeFa(CH.Dollar_Sulaymaniyah.NEEDLE))) continue;
-      if (hasAny(text, CH.Dollar_Sulaymaniyah.EXCLUDE)) continue;
-
-      let isToday = false, timeISO = null;
-      if (meta.datetimeISO) {
-        const dt = new Date(meta.datetimeISO);
-        if (dateKeyInTZ(dt) === todayKey) {
-          isToday = true; timeISO = dt.toISOString();
-        }
-      }
-      if (!isToday) continue;
-
-      sawAnyToday = true;
-
-      const { usd, eur } = extractCurrenciesFromSuli(text);
-      const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
-      if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-      if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-    }
-
-    pages += 1;
-    if (!sawAnyToday) break;
-    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
-  }
-
-  const pickLatest = (arr) => arr.length ? arr.sort((a, b) => b.id - a.id)[0] : null;
-
-  return {
-    usdPick: pickLatest(usdToday),
-    eurPick: pickLatest(eurToday),
-    usdFoundToday: Boolean(usdToday.length),
-    eurFoundToday: Boolean(eurToday.length),
-  };
-}
-
+// ——— Scanners (generic) ———
 async function scanCashToday(chan) {
-  // برای کانال‌های نقدی (هرات، تهران3بزه): include/exclude و انتخاب آخرین پست امروز
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
@@ -316,7 +261,6 @@ async function scanCashToday(chan) {
       const hasExc = hasAny(text, chan.EXCLUDE);
       if (!hasInc || hasExc) continue;
 
-      // امروز؟
       let isToday = false, timeISO = null;
       if (meta.datetimeISO) {
         const dt = new Date(meta.datetimeISO);
@@ -326,7 +270,7 @@ async function scanCashToday(chan) {
 
       sawAnyToday = true;
 
-      const val = extractHeratValue(text, chan.INCLUDE, chan.EXCLUDE);
+      const val = extractCashValue(text, chan.INCLUDE, chan.EXCLUDE);
       if (val) {
         const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
         picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
@@ -338,28 +282,60 @@ async function scanCashToday(chan) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  if (!picks.length) return { pick: null, foundToday: false };
+  if (!picks.length) return { pick: null, foundToday: false, nextBefore: before };
   picks.sort((a, b) => b.id - a.id);
-  return { pick: picks[0], foundToday: true };
+  return { pick: picks[0], foundToday: true, nextBefore: before };
 }
 
-async function scanHeratFull() {
-  // هرات با future_only و last_cash
+async function scanCashLast(chan, startBefore) {
+  // اولین «نقدی معتبر» در گذشته
+  let before = startBefore || null;
+  let pages = 0;
+
+  while (pages < MAX_PAGES_HISTORY) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+    let nextBefore = Infinity;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) nextBefore = Math.min(nextBefore, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const hasInc = hasAny(text, chan.INCLUDE);
+      const hasExc = hasAny(text, chan.EXCLUDE);
+      if (hasInc && !hasExc) {
+        const val = extractCashValue(text, chan.INCLUDE, chan.EXCLUDE);
+        if (val) {
+          const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
+          const age = dtISO ? hoursBetween(new Date(), new Date(dtISO)) : null;
+          return { last: { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } };
+        }
+      }
+    }
+
+    pages += 1;
+    if (Number.isFinite(nextBefore)) before = nextBefore; else break;
+  }
+  return { last: null };
+}
+
+// ——— SULI scanners ———
+async function scanSuliToday() {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
   let before = null, pages = 0;
-
-  const todayPicks = [];
-  let sawTodayAny = false;
-  let sawTodayFuture = false;
+  const usdToday = [], eurToday = [];
 
   while (pages < MAX_PAGES_TODAY) {
-    const blocks = await fetchPage(CH.Herat_Tomen.URL, before);
+    const blocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, before);
     if (!blocks.length) break;
 
     let pageMinId = Infinity;
-    let sawAnyTodayOnThisPage = false;
+    let sawAnyToday = false;
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
@@ -368,6 +344,10 @@ async function scanHeratFull() {
       const text = extractMessageText(block);
       if (!text) continue;
 
+      const textNorm = normalizeFa(text);
+      if (!textNorm.includes(normalizeFa(CH.Dollar_Sulaymaniyah.NEEDLE))) continue;
+      if (hasAny(text, CH.Dollar_Sulaymaniyah.EXCLUDE)) continue;
+
       let isToday = false, timeISO = null;
       if (meta.datetimeISO) {
         const dt = new Date(meta.datetimeISO);
@@ -375,77 +355,71 @@ async function scanHeratFull() {
       }
       if (!isToday) continue;
 
-      sawAnyTodayOnThisPage = true;
-      sawTodayAny = true;
+      sawAnyToday = true;
 
-      const hasInc = hasAny(text, CH.Herat_Tomen.INCLUDE);
-      const hasExc = hasAny(text, CH.Herat_Tomen.EXCLUDE);
+      const { usd, eur } = extractCurrenciesFromSuli(text);
+      const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
+      if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+    }
 
-      if (hasExc && !hasInc) {
-        sawTodayFuture = true;
-        continue;
-      }
-      if (hasInc && !hasExc) {
-        const val = extractHeratValue(text, CH.Herat_Tomen.INCLUDE, CH.Herat_Tomen.EXCLUDE);
-        if (val) {
-          const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
-          todayPicks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-        }
+    pages += 1;
+    if (!sawAnyToday) break;
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+  }
+
+  const pickLatest = (arr) => arr.length ? arr.sort((a, b) => b.id - a.id)[0] : null;
+
+  return {
+    usdPick: pickLatest(usdToday),
+    eurPick: pickLatest(eurToday),
+    usdFoundToday: Boolean(usdToday.length),
+    eurFoundToday: Boolean(eurToday.length),
+    nextBefore: before,
+  };
+}
+
+async function scanSuliLast(startBefore) {
+  let before = startBefore || null;
+  let pages = 0;
+
+  while (pages < MAX_PAGES_HISTORY) {
+    const blocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, before);
+    if (!blocks.length) break;
+
+    let nextBefore = Infinity;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) nextBefore = Math.min(nextBefore, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const textNorm = normalizeFa(text);
+      if (!textNorm.includes(normalizeFa(CH.Dollar_Sulaymaniyah.NEEDLE))) continue;
+      if (hasAny(text, CH.Dollar_Sulaymaniyah.EXCLUDE)) continue;
+
+      const { usd, eur } = extractCurrenciesFromSuli(text);
+      const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
+      const age = dtISO ? hoursBetween(new Date(), new Date(dtISO)) : null;
+
+      // اولین مورد گذشته‌ای که نرخ دارد را برگردان
+      if (usd || eur) {
+        return {
+          usdLast: usd ? { ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } : null,
+          eurLast: eur ? { ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } : null,
+        };
       }
     }
 
     pages += 1;
-    if (!sawAnyTodayOnThisPage) break;
-    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+    if (Number.isFinite(nextBefore)) before = nextBefore; else break;
   }
-
-  let usd_herat_cash = null;
-  if (todayPicks.length) {
-    todayPicks.sort((a, b) => b.id - a.id);
-    usd_herat_cash = todayPicks[0];
-  }
-
-  // اگر امروز نقدی نبود، آخرین نقدی معتبر گذشته
-  let herat_last_cash = null;
-  if (!usd_herat_cash) {
-    let before2 = before;
-    let pages2 = 0;
-    outer: while (pages2 < MAX_PAGES_HISTORY) {
-      const blocks = await fetchPage(CH.Herat_Tomen.URL, before2);
-      if (!blocks.length) break;
-      let nextBefore = Infinity;
-
-      for (const block of blocks) {
-        const meta = extractMessageMeta(block);
-        if (meta.id) nextBefore = Math.min(nextBefore, meta.id);
-
-        const text = extractMessageText(block);
-        if (!text) continue;
-
-        const hasInc = hasAny(text, CH.Herat_Tomen.INCLUDE);
-        const hasExc = hasAny(text, CH.Herat_Tomen.EXCLUDE);
-        if (hasInc && !hasExc) {
-          const val = extractHeratValue(text, CH.Herat_Tomen.INCLUDE, CH.Herat_Tomen.EXCLUDE);
-          if (val) {
-            const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
-            const age = dtISO ? hoursBetween(now, new Date(dtISO)) : null;
-            herat_last_cash = { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age };
-            break outer;
-          }
-        }
-      }
-
-      pages2 += 1;
-      if (Number.isFinite(nextBefore)) before2 = nextBefore; else break;
-    }
-  }
-
-  const herat_found_today = Boolean(usd_herat_cash);
-  const herat_future_only = !herat_found_today && sawTodayAny && sawTodayFuture;
-
-  return { usd_herat_cash, herat_found_today, herat_future_only, herat_last_cash };
+  return { usdLast: null, eurLast: null };
 }
 
+// ——— TETHER scanners ———
 async function scanTetherToday(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
@@ -492,95 +466,204 @@ async function scanTetherToday(chan) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  if (!picks.length) return { pick: null, foundToday: false };
+  if (!picks.length) return { pick: null, foundToday: false, nextBefore: before };
   picks.sort((a, b) => b.id - a.id);
-  return { pick: picks[0], foundToday: true };
+  return { pick: picks[0], foundToday: true, nextBefore: before };
+}
+
+async function scanTetherLast(chan, startBefore) {
+  let before = startBefore || null;
+  let pages = 0;
+
+  while (pages < MAX_PAGES_HISTORY) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+
+    let nextBefore = Infinity;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) nextBefore = Math.min(nextBefore, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const hasInc = hasAny(text, chan.INCLUDE);
+      const hasExc = hasAny(text, chan.EXCLUDE);
+      if (!hasInc || hasExc) continue;
+
+      const val = extractTether(text);
+      if (val) {
+        const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
+        const age = dtISO ? hoursBetween(new Date(), new Date(dtISO)) : null;
+        return { last: { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } };
+      }
+    }
+
+    pages += 1;
+    if (Number.isFinite(nextBefore)) before = nextBefore; else break;
+  }
+  return { last: null };
+}
+
+// ——— Bon-Bast (homepage table) ———
+async function scanBonbast() {
+  const URL = "https://www.bon-bast.com/";
+  const res = await fetch(URL, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+      accept: "text/html,application/xhtml+xml",
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${URL}`);
+  const html = await res.text();
+  const text = htmlToText(html);
+
+  // as_of
+  let as_of_text = null;
+  const mAsOf = text.match(/Iranian Rial Exchange Rates\.\s*([^\n]+?)\s*All prices/i);
+  if (mAsOf) as_of_text = mAsOf[1].trim();
+
+  // یک تکه از جدول: به سراغ خطوط USD/EUR می‌رویم
+  function pickRow(codeRegex, nameRegex) {
+    // نمونه: "USD  US Dollar  93,300   92,740"
+    const re = new RegExp(`${codeRegex.source}[^\\n]*${nameRegex.source}[^\\n]*?([0-9][\\d,\\s]*)[^\\n]*?([0-9][\\d,\\s]*)`, "i");
+    const m = text.match(re);
+    if (!m) return null;
+    const sell = Number((m[1] || "").replace(/[^\d]/g, ""));
+    const buy  = Number((m[2] || "").replace(/[^\d]/g, ""));
+    if (!sell && !buy) return null;
+    return { sell: sell || null, buy: buy || null, unit: "تومان" };
+  }
+
+  const usd = pickRow(/\bUSD\b/, /\bUS Dollar\b/);
+  const eur = pickRow(/\bEUR\b/, /\bEuro\b/);
+
+  return {
+    source_bonbast: URL,
+    bonbast: { as_of_text, usd: usd || null, eur: eur || null },
+  };
 }
 
 // ——— Main ———
 async function main() {
-  // Herat (full features)
-  const herat = await scanHeratFull();
+  // Herat (full features: today, future_only, last)
+  const heratToday = await scanCashToday(CH.Herat_Tomen);
+  const heratLast  = await scanCashLast(CH.Herat_Tomen, heratToday.nextBefore);
+  const herat = {
+    usd_herat_cash: heratToday.pick || null,
+    herat_found_today: heratToday.foundToday,
+    herat_future_only: !heratToday.foundToday && heratToday.nextBefore !== null, // امروز پست هست ولی نقدی نبود → احتمالاً future-only
+    herat_last_cash: heratLast.last || null,
+  };
 
-  // Tehran 3bze (cash today)
-  const tehran = await scanCashToday(CH.Dollar_Tehran3bze);
+  // Tehran3bze (today + last)
+  const tehranToday = await scanCashToday(CH.Dollar_Tehran3bze);
+  const tehranLast  = await scanCashLast(CH.Dollar_Tehran3bze, tehranToday.nextBefore);
+  const tehran = {
+    usd_tehran_cash: tehranToday.pick || null,
+    tehran_found_today: tehranToday.foundToday,
+    tehran_last_cash: tehranLast.last || null,
+  };
 
-  // Sulaymaniyah (USD/EUR today with "کف مشهد")
-  const suli = await scanSuliToday();
+  // Suli (today + last for USD/EUR)
+  const suliToday = await scanSuliToday();
+  const suliLast  = await scanSuliLast(suliToday.nextBefore);
+  const suli = {
+    usd_floor_mashhad: suliToday.usdPick || null,
+    eur_floor_mashhad: suliToday.eurPick || null,
+    usd_found_today: suliToday.usdFoundToday,
+    eur_found_today: suliToday.eurFoundToday,
+    usd_floor_mashhad_last: suliLast.usdLast || null,
+    eur_floor_mashhad_last: suliLast.eurLast || null,
+  };
 
-  // Tether channels
-  const aban  = await scanTetherToday(CH.AbanTetherPrice);
-  const tland = await scanTetherToday(CH.TetherLand);
+  // Tether (today + last)
+  const abanToday  = await scanTetherToday(CH.AbanTetherPrice);
+  const abanLast   = await scanTetherLast(CH.AbanTetherPrice, abanToday.nextBefore);
+  const tlandToday = await scanTetherToday(CH.TetherLand);
+  const tlandLast  = await scanTetherLast(CH.TetherLand, tlandToday.nextBefore);
+
+  const usdt = {
+    usdt_aban: abanToday.pick || null,
+    aban_found_today: abanToday.foundToday,
+    usdt_aban_last: abanLast.last || null,
+
+    usdt_tetherland: tlandToday.pick || null,
+    tetherland_found_today: tlandToday.foundToday,
+    usdt_tetherland_last: tlandLast.last || null,
+  };
+
+  // Bon-bast (homepage)
+  const bonbast = await scanBonbast();
 
   const payload = {
     status: "ok",
     scraped_at: new Date().toISOString(),
 
-    // — Herat
+    // Herat
     source_herat: CH.Herat_Tomen.URL,
-    usd_herat_cash: herat.usd_herat_cash || null,
-    herat_found_today: herat.herat_found_today,
-    herat_future_only: herat.herat_future_only || false,
-    herat_last_cash: herat.herat_last_cash || null,
+    ...herat,
 
-    // — Tehran3bze
+    // Tehran3bze
     source_tehran3bze: CH.Dollar_Tehran3bze.URL,
-    usd_tehran_cash: tehran.pick || null,
-    tehran_found_today: tehran.foundToday,
+    ...tehran,
 
-    // — Sulaymaniyah
+    // Sulaymaniyah
     source_sulaymaniyah: CH.Dollar_Sulaymaniyah.URL,
     needle: CH.Dollar_Sulaymaniyah.NEEDLE,
-    usd_floor_mashhad: suli.usdPick || null,
-    eur_floor_mashhad: suli.eurPick || null,
-    usd_found_today: suli.usdFoundToday,
-    eur_found_today: suli.eurFoundToday,
+    ...suli,
 
-    // — Tether (USDT)
+    // USDT
     source_aban: CH.AbanTetherPrice.URL,
-    usdt_aban: aban.pick || null,
-    aban_found_today: aban.foundToday,
-
     source_tetherland: CH.TetherLand.URL,
-    usdt_tetherland: tland.pick || null,
-    tetherland_found_today: tland.foundToday,
+    ...usdt,
+
+    // Bon-bast
+    ...bonbast,
   };
 
   ensureDir(OUTDIR);
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
 
+  // GitHub outputs (فقط امروزها را خروجی بده؛ last ها برای نمایش هستند)
   if (process.env.GITHUB_OUTPUT) {
-    const lines = [];
+    const L = [];
 
     // Herat
-    lines.push(`herat_found_today=${payload.herat_found_today}`);
-    lines.push(`herat_future_only=${payload.herat_future_only}`);
-    if (payload.usd_herat_cash?.value) { lines.push(`herat_usd=${payload.usd_herat_cash.value}`); lines.push(`herat_msg=${payload.usd_herat_cash.id||""}`); }
-    if (payload.herat_last_cash?.value) { lines.push(`herat_last_cash=${payload.herat_last_cash.value}`); lines.push(`herat_last_msg=${payload.herat_last_cash.id||""}`); }
+    L.push(`herat_found_today=${herat.herat_found_today}`);
+    L.push(`herat_future_only=${herat.herat_future_only}`);
+    if (herat.usd_herat_cash?.value) { L.push(`herat_usd=${herat.usd_herat_cash.value}`); L.push(`herat_msg=${herat.usd_herat_cash.id||""}`); }
 
     // Tehran
-    lines.push(`tehran_found_today=${payload.tehran_found_today}`);
-    if (payload.usd_tehran_cash?.value) { lines.push(`tehran_usd=${payload.usd_tehran_cash.value}`); lines.push(`tehran_msg=${payload.usd_tehran_cash.id||""}`); }
+    L.push(`tehran_found_today=${tehran.tehran_found_today}`);
+    if (tehran.usd_tehran_cash?.value) { L.push(`tehran_usd=${tehran.usd_tehran_cash.value}`); L.push(`tehran_msg=${tehran.usd_tehran_cash.id||""}`); }
 
     // Sulaymaniyah
-    lines.push(`usd_found_today=${payload.usd_found_today}`);
-    if (payload.usd_floor_mashhad?.value) { lines.push(`usd=${payload.usd_floor_mashhad.value}`); lines.push(`usd_msg=${payload.usd_floor_mashhad.id||""}`); }
-    lines.push(`eur_found_today=${payload.eur_found_today}`);
-    if (payload.eur_floor_mashhad?.value) { lines.push(`eur=${payload.eur_floor_mashhad.value}`); lines.push(`eur_msg=${payload.eur_floor_mashhad.id||""}`); }
+    L.push(`usd_found_today=${suli.usd_found_today}`);
+    if (suli.usd_floor_mashhad?.value) { L.push(`usd=${suli.usd_floor_mashhad.value}`); L.push(`usd_msg=${suli.usd_floor_mashhad.id||""}`); }
+    L.push(`eur_found_today=${suli.eur_found_today}`);
+    if (suli.eur_floor_mashhad?.value) { L.push(`eur=${suli.eur_floor_mashhad.value}`); L.push(`eur_msg=${suli.eur_floor_mashhad.id||""}`); }
 
     // USDT
-    lines.push(`aban_found_today=${payload.aban_found_today}`);
-    if (payload.usdt_aban?.mid)  lines.push(`aban_mid=${payload.usdt_aban.mid}`);
-    if (payload.usdt_aban?.sell) lines.push(`aban_sell=${payload.usdt_aban.sell}`);
-    if (payload.usdt_aban?.buy)  lines.push(`aban_buy=${payload.usdt_aban.buy}`);
+    L.push(`aban_found_today=${usdt.aban_found_today}`);
+    if (usdt.usdt_aban?.mid)  L.push(`aban_mid=${usdt.usdt_aban.mid}`);
+    if (usdt.usdt_aban?.sell) L.push(`aban_sell=${usdt.usdt_aban.sell}`);
+    if (usdt.usdt_aban?.buy)  L.push(`aban_buy=${usdt.usdt_aban.buy}`);
 
-    lines.push(`tetherland_found_today=${payload.tetherland_found_today}`);
-    if (payload.usdt_tetherland?.mid)  lines.push(`tetherland_mid=${payload.usdt_tetherland.mid}`);
-    if (payload.usdt_tetherland?.sell) lines.push(`tetherland_sell=${payload.usdt_tetherland.sell}`);
-    if (payload.usdt_tetherland?.buy)  lines.push(`tetherland_buy=${payload.usdt_tetherland.buy}`);
+    L.push(`tetherland_found_today=${usdt.tetherland_found_today}`);
+    if (usdt.usdt_tetherland?.mid)  L.push(`tetherland_mid=${usdt.usdt_tetherland.mid}`);
+    if (usdt.usdt_tetherland?.sell) L.push(`tetherland_sell=${usdt.usdt_tetherland.sell}`);
+    if (usdt.usdt_tetherland?.buy)  L.push(`tetherland_buy=${usdt.usdt_tetherland.buy}`);
 
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
+    // Bon-bast: برای اطلاع
+    if (bonbast?.bonbast?.usd?.sell) L.push(`bonbast_usd_sell=${bonbast.bonbast.usd.sell}`);
+    if (bonbast?.bonbast?.usd?.buy)  L.push(`bonbast_usd_buy=${bonbast.bonbast.usd.buy}`);
+    if (bonbast?.bonbast?.eur?.sell) L.push(`bonbast_eur_sell=${bonbast.bonbast.eur.sell}`);
+    if (bonbast?.bonbast?.eur?.buy)  L.push(`bonbast_eur_buy=${bonbast.bonbast.eur.buy}`);
+
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, L.join("\n") + "\n");
   }
 }
 
