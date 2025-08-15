@@ -1,17 +1,18 @@
 {
   "status": "ok",
-  "found": true,
   "source": "https://t.me/s/dollar_sulaymaniyah",
   "needle": "کف مشهد",
-  "link": "https://t.me/dollar_sulaymaniyah/1231845",
-  "date_text": "10:40",
-  "scraped_at": "2025-08-15T11:07:12.454Z",
-  "text": "کف مشهد 91650",
+  "scraped_at": "2025-08-15T11:22:16.879Z",
   "usd_floor_mashhad": {
-    "value": 91650,
+    "value": 91550,
     "unit": "تومان",
-    "raw_line": "کف مشهد 91650"
+    "raw_line": "کف مشهد 91550",
+    "link": "https://t.me/dollar_sulaymaniyah/1231843",
+    "id": 1231843,
+    "time_iso": "2025-08-15T08:43:37.000Z",
+    "age_hours": 2.6439322222222224
   },
   "eur_floor_mashhad": null,
-  "message_id": 1231845
+  "usd_found_today": true,
+  "eur_found_today": false
 }
