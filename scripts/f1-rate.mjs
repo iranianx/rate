@@ -605,7 +605,7 @@ async function scanTetherToday(chan) {
   let pick = null;
   if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
 
-  // Double-check: صفحهٔ اول تا 30 پست
+  // Double-check: صفحهٔ اول تا 30 پست — همیشه تازه‌ترین امروز را بگیر (بدون آستانه‌ی زمانی)
   const freshBlocks = await fetchPage(chan.URL, null);
   const candidates = [];
   let scanned = 0;
@@ -635,11 +635,8 @@ async function scanTetherToday(chan) {
   if (candidates.length) {
     candidates.sort((a, b) => b.id - a.id);
     const newest = candidates[0];
-    if (!pick) pick = newest;
-    else {
-      const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
-      if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
-    }
+    // بدون قید و شرط، آخرین کاندید امروز را جایگزین کن
+    pick = newest;
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
