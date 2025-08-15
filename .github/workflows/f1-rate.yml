@@ -1,7 +1,7 @@
 name: "F1 Rate: test"
 
 on:
-  workflow_dispatch: {}   # فقط دستی، طبق خواسته‌ت
+  workflow_dispatch: {}   # فقط دستی، طبق قاعده‌ای که گفتی
 
 permissions:
   contents: write
@@ -22,48 +22,26 @@ jobs:
         with:
           node-version: 20
 
-      - name: "Prepare data dir + placeholder"
-        run: |
-          set -e
-          mkdir -p rate/data
-          TS=$(date -u +%FT%TZ)
-          cat > rate/data/f1-exit.json <<EOF
-          { "status":"placeholder", "found": false, "message":"no script output yet", "scraped_at":"$TS", "source":"https://t.me/s/dollar_sulaymaniyah", "needle":"کف مشهد" }
-          EOF
-
-      - name: "Debug tree (pre-run)"
+      - name: "Debug tree (optional)"
         run: |
           pwd
           ls -la
           find . -maxdepth 3 -type f | sort || true
 
-      - name: "Run f1 scraper (best-effort)"
-        run: |
-          set -x
-          if [ -f rate/scripts/f1-rate.mjs ]; then
-            node rate/scripts/f1-rate.mjs || true
-          elif [ -f scripts/f1-rate.mjs ]; then
-            node scripts/f1-rate.mjs || true
-          else
-            echo "WARN: f1-rate.mjs not found under rate/scripts or scripts; keeping placeholder"
-          fi
+      # دقیقا مثل کار قبلی: از ریشه اجرا کن، نه rate/scripts
+      - name: "Run f1 scraper"
+        run: node scripts/f1-rate.mjs
 
       - name: "Show result"
         run: |
           echo "Result file:"
-          if [ -f rate/data/f1-exit.json ]; then
-            cat rate/data/f1-exit.json
-          else
-            echo "FATAL: rate/data/f1-exit.json still missing"
-            exit 1
-          fi
+          cat rate/data/f1-exit.json || (echo "MISSING rate/data/f1-exit.json" && exit 1)
 
       - name: "Commit & push if changed"
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # اگر چیزی تغییر کرده، فقط همین فایل را کامیت کن
           if [[ -n "$(git status --porcelain)" ]]; then
             git add rate/data/f1-exit.json
             git commit -m "chore(f1): update Sulaymaniyah کف مشهد"
