@@ -7,11 +7,9 @@ const NEEDLE = "کف مشهد";
 const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
 const TZ = "Europe/Istanbul";
-const MAX_PAGES = 12; // در عمل کافی است
+const MAX_PAGES = 12;
 
-function ensureDir(p) {
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-}
+function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
 
 function htmlToText(html) {
   return html
@@ -26,13 +24,13 @@ function htmlToText(html) {
     .trim();
 }
 
-// نرمال‌سازی فارسی/عربی
+// نرمال‌سازی فارسی
 function normalizeFa(s) {
   if (!s) return s;
   return s
     .replace(/\u200c/g, " ")
     .replace(/\u0640/g, "")
-    .replace(/[\u064B-\u0652]/g, " ") // اعراب → فاصله
+    .replace(/[\u064B-\u0652]/g, " ")
     .replace(/ي/g, "ی")
     .replace(/ك/g, "ک")
     .replace(/\s+/g, " ")
@@ -63,18 +61,12 @@ function pickIntegersAll(s) {
   return out;
 }
 
-function pickInteger(s) {
-  const arr = pickIntegersAll(s);
-  return arr.length ? arr[0] : null;
-}
-
 function extractBlocks(html) {
   const parts = html.split('<div class="tgme_widget_message_wrap');
   return parts.slice(1).map(b => '<div class="tgme_widget_message_wrap' + b);
 }
 
 function extractMessageMeta(block) {
-  // لینک، زمان، آیدی
   const a = block.match(
     /<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
   );
@@ -100,16 +92,9 @@ function extractMessageText(block) {
 
 // ابزارهای زمانی
 function dateKeyInTZ(d, tz = TZ) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d); // YYYY-MM-DD
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
-function hoursBetween(a, b) {
-  return Math.abs((a.getTime() - b.getTime()) / 36e5);
-}
+function hoursBetween(a, b) { return Math.abs((a.getTime() - b.getTime()) / 36e5); }
 
 // تشخیص یورو/دلار و استخراج اعداد
 function extractCurrenciesFromText(fullText) {
@@ -117,27 +102,21 @@ function extractCurrenciesFromText(fullText) {
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
 
   const isEUR = (l) => /(\bEUR\b|€|یورو)/i.test(l);
-  const isUSD = (l) =>
-    /(\bUSD\b|\$|دلار(?!\s*(استرالیا|کانادا))|دلار\s*امریکا|دلار\s*آمریکا)/i.test(l);
+  const isUSD = (l) => /(\bUSD\b|\$|دلار(?!\s*(استرالیا|کانادا))|دلار\s*امریکا|دلار\s*آمریکا)/i.test(l);
 
   let usd = null, eur = null;
 
-  // خط «کف مشهد»
   const floorLine = lines.find(l => l.includes("کف مشهد"));
   if (floorLine) {
-    const euroLine = isEUR(floorLine);
     const nums = pickIntegersAll(floorLine);
-    if (euroLine && nums.length) {
+    if (isEUR(floorLine) && nums.length) {
       const min = Math.min(...nums), max = Math.max(...nums);
       const avg = Math.round((min + max) / 2);
       eur = { value: avg, min, max, unit: "تومان", raw_line: floorLine };
-    } else {
-      const val = nums.length ? nums[0] : null;
-      if (val) usd = { value: val, unit: "تومان", raw_line: floorLine };
+    } else if (nums.length) {
+      usd = { value: nums[0], unit: "تومان", raw_line: floorLine };
     }
   }
-
-  // اگر یورو هنوز خالی بود، سایر خطوط «یورو»
   if (!eur) {
     for (const line of lines) {
       if (isEUR(line)) {
@@ -151,17 +130,14 @@ function extractCurrenciesFromText(fullText) {
       }
     }
   }
-
-  // اگر دلار هنوز خالی بود، سایر خطوط «دلار»
   if (!usd) {
     for (const line of lines) {
       if (isUSD(line)) {
-        const val = pickInteger(line);
-        if (val) { usd = { value: val, unit: "تومان", raw_line: line }; break; }
+        const nums = pickIntegersAll(line);
+        if (nums.length) { usd = { value: nums[0], unit: "تومان", raw_line: line }; break; }
       }
     }
   }
-
   return { usd, eur };
 }
 
@@ -169,15 +145,13 @@ async function fetchPage(beforeId = null) {
   const url = beforeId ? `${URL}?before=${beforeId}` : URL;
   const res = await fetch(url, {
     headers: {
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
       accept: "text/html,application/xhtml+xml",
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const html = await res.text();
-  const blocks = extractBlocks(html);
-  return blocks;
+  return extractBlocks(html);
 }
 
 async function main() {
@@ -187,18 +161,18 @@ async function main() {
   let before = null;
   let pages = 0;
 
+  // همیشه «آخرینِ امروز» را انتخاب می‌کنیم، یعنی بالاترین ID در همان روز
   let usdPick = null; // {value, unit, raw_line, link, id, time_iso, age_hours}
   let eurPick = null;
 
-  let stop = false;
-
-  while (!stop && pages < MAX_PAGES) {
+  while (pages < MAX_PAGES) {
     const blocks = await fetchPage(before);
     if (!blocks.length) break;
 
     let pageMinId = Infinity;
-    let pageHasToday = false;
+    let sawAnyTodayOnThisPage = false;
 
+    // همهٔ بلاک‌ها را پیمایش کن، هرجا «امروز» بود، کاندیداها را به‌روزرسانی کن
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
       if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
@@ -209,64 +183,44 @@ async function main() {
       const textNorm = normalizeFa(text);
       if (!textNorm.includes(normalizeFa(NEEDLE))) continue;
 
-      // تعیین «امروز»
       let isToday = false;
       let timeISO = null;
       if (meta.datetimeISO) {
         const dt = new Date(meta.datetimeISO);
-        const key = dateKeyInTZ(dt);
-        isToday = (key === todayKey);
+        isToday = dateKeyInTZ(dt) === todayKey;
         timeISO = dt.toISOString();
-      } else {
-        // اگر datetime نبود، محافظه‌کارانه: امروز فرض نکن
-        isToday = false;
       }
+      if (!isToday) continue;
 
-      if (isToday) pageHasToday = true;
-      if (!isToday) continue; // فقط امروز را می‌خواهیم
+      sawAnyTodayOnThisPage = true;
 
       const { usd, eur } = extractCurrenciesFromText(text);
-
       const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
 
-      if (!usdPick && usd) {
-        usdPick = {
-          ...usd,
-          link: meta.link || null,
-          id: meta.id || null,
-          time_iso: timeISO,
-          age_hours: age,
-        };
+      // فقط اگر این پیام «جدیدتر» از قبلی است، جایگزین کن
+      if (usd && (!usdPick || (meta.id ?? 0) > (usdPick.id ?? 0))) {
+        usdPick = { ...usd, link: meta.link || null, id: meta.id || null, time_iso: timeISO, age_hours: age };
       }
-      if (!eurPick && eur) {
-        eurPick = {
-          ...eur,
-          link: meta.link || null,
-          id: meta.id || null,
-          time_iso: timeISO,
-          age_hours: age,
-        };
+      if (eur && (!eurPick || (meta.id ?? 0) > (eurPick.id ?? 0))) {
+        eurPick = { ...eur, link: meta.link || null, id: meta.id || null, time_iso: timeISO, age_hours: age };
       }
-      if (usdPick && eurPick) { stop = true; break; }
     }
 
-    // آماده صفحه بعد
-    before = Number.isFinite(pageMinId) ? pageMinId : before;
+    // آمادهٔ صفحهٔ بعد، تا وقتی هنوز «امروز» را می‌بینیم پایین برو
     pages += 1;
-
-    // اگر در این صفحه هیچ پیام «امروز» نبود، یعنی از امروز عبور کردیم → متوقف شو
-    if (!pageHasToday) break;
-    // اگر id حداقلی تغییر نکرد (ایراد صفحه‌بندی)، متوقف شو
+    if (Number.isFinite(pageMinId)) before = pageMinId;
+    // اگر این صفحه هیچ پیامِ «امروز» نداشت، یعنی از امروز عبور کرده‌ایم، توقف
+    if (!sawAnyTodayOnThisPage) break;
     if (!before) break;
+    // اگر هر دو مقدار امروز را گرفته‌ایم، می‌توانیم بایستیم
+    if (usdPick && eurPick) break;
   }
 
-  // خروجی نهایی
   const payload = {
     status: "ok",
     source: URL,
     needle: NEEDLE,
     scraped_at: new Date().toISOString(),
-    // فقط اگر امروز یافت شده باشند مقدار می‌گیرند
     usd_floor_mashhad: usdPick || null,
     eur_floor_mashhad: eurPick || null,
     usd_found_today: Boolean(usdPick),
