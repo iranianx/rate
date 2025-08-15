@@ -1,4 +1,4 @@
-// rate/scripts/f1-rate.mjs
+// scripts/f1-rate.mjs
 import fs from "fs";
 import path from "path";
 
@@ -23,6 +23,41 @@ function htmlToText(html) {
     .replace(/&gt;/g, ">")
     .replace(/\s+\n/g, "\n")
     .trim();
+}
+
+// نرمال‌سازی فارسی/عربی: ی/ي، ک/ك، حذف اعراب/کِشیده/ZWNJ
+function normalizeFa(s) {
+  if (!s) return s;
+  return s
+    .replace(/\u200c/g, " ")          // ZWNJ → فاصله
+    .replace(/\u0640/g, "")           // کشیده
+    .replace(/[\u064B-\u0652]/g, "")  // اعراب
+    .replace(/ي/g, "ی")
+    .replace(/ك/g, "ک")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// تبدیل همه گونه ارقام فارسی/عربی به لاتین + نرمال‌سازی جداکننده‌ها
+function faToEnDigits(str) {
+  if (!str) return str;
+  const map = {
+    "۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
+    "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9",
+    "٫":".","٬":","
+  };
+  return str.replace(/[۰-۹٠-٩٫٬]/g, ch => map[ch] ?? ch);
+}
+
+// استخراج اولین عدد صحیح از یک رشته
+function pickInteger(s) {
+  if (!s) return null;
+  const t = faToEnDigits(s);
+  const m = t.match(/([0-9][0-9.,\s]*)/);
+  if (!m) return null;
+  const clean = m[1].replace(/[^\d]/g, "");
+  if (!clean) return null;
+  return Number(clean);
 }
 
 function extractBlocks(html) {
@@ -52,48 +87,62 @@ function extractMessageMeta(block) {
   return { link, dateText };
 }
 
-// تبدیل اعداد فارسی به لاتین
-function faToEnDigits(str) {
-  const fa = "۰۱۲۳۴۵۶۷۸۹";
-  return str.replace(/[۰-۹]/g, d => String(fa.indexOf(d)));
-}
+// ————— Currency extraction —————
+function extractCurrencies(fullText) {
+  // متن اصلی را نگه می‌داریم، ولی روی نسخه نرمال‌شده تحلیل می‌کنیم
+  const normText = normalizeFa(fullText);
 
-// استخراج اولین عدد صحیح از یک رشته
-function pickInteger(s) {
-  if (!s) return null;
-  const t = faToEnDigits(s);
-  const m = t.match(/([0-9][0-9.,\s]*)/);
-  if (!m) return null;
-  // حذف جداکننده‌ها و هرچیز غیر عدد
-  const clean = m[1].replace(/[^\d]/g, "");
-  if (!clean) return null;
-  return Number(clean);
-}
+  // 1) اگر خود «کف مشهد <عدد>» آمده باشد، همان را به‌عنوان دلار در نظر بگیر
+  //   (کانال معمولاً کف مشهد را برای دلار می‌نویسد)
+  let usd = null;
+  const usdFromFloor = (() => {
+    const t = faToEnDigits(normText);
+    const m = t.match(/کف\s*مشهد[^0-9]*([0-9][0-9.,\s]*)/i);
+    if (!m) return null;
+    const val = pickInteger(m[1]);
+    if (!val) return null;
+    return { value: val, unit: "تومان", raw_line: fullText };
+  })();
+  if (usdFromFloor) usd = usdFromFloor;
 
-function extractCurrencies(text) {
-  // کل پیام را خط‌به‌خط می‌خوانیم و به دنبال خطوط حاوی «دلار» و «یورو» می‌گردیم
-  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-
-  // کلیدواژه‌ها
+  // 2) اگر خطوط «یورو» جداگانه داشت، استخراج کن
+  const lines = normText.split(/\n+/).map(l => l.trim()).filter(Boolean);
   const isUSD = (l) =>
-    /(\bUSD\b|\$|دلار(?! استرالیا| کانادا)|دلار امریکا|دلار آمریکا)/i.test(l);
+    /(\bUSD\b|\$|دلار(?!\s*(استرالیا|کانادا))|دلار\s*امریکا|دلار\s*آمریکا)/i.test(l);
   const isEUR = (l) => /(\bEUR\b|€|یورو)/i.test(l);
 
-  let usd = null;
   let eur = null;
 
   for (const line of lines) {
-    // فقط خطوط مرتبط با «کف مشهد» یا همان پیام را بررسی می‌کنیم
-    if (!usd && isUSD(line)) {
-      const val = pickInteger(line);
-      if (val) usd = { value: val, unit: "تومان", raw_line: line };
-    }
     if (!eur && isEUR(line)) {
       const val = pickInteger(line);
       if (val) eur = { value: val, unit: "تومان", raw_line: line };
     }
+    // اگر پیام شکل «یورو کف مشهد 99xxx» داشت
+    if (!eur) {
+      const t = faToEnDigits(line);
+      const m = t.match(/یورو[^0-9]*([0-9][0-9.,\s]*)/i);
+      if (m) {
+        const val = pickInteger(m[1]);
+        if (val) eur = { value: val, unit: "تومان", raw_line: line };
+      }
+    }
     if (usd && eur) break;
   }
+
+  // 3) اگر پیام برای دلار هم خطی با «دلار …» داشت و قبلاً از کف نگرفتیم، از آن استفاده کن
+  if (!usd) {
+    for (const line of lines) {
+      if (isUSD(line)) {
+        const val = pickInteger(line);
+        if (val) {
+          usd = { value: val, unit: "تومان", raw_line: line };
+          break;
+        }
+      }
+    }
+  }
+
   return { usd, eur };
 }
 
@@ -109,12 +158,15 @@ async function main() {
   const html = await res.text();
   const blocks = extractBlocks(html);
 
+  const needleNorm = normalizeFa(NEEDLE);
   let latest = null;
 
   for (const block of blocks) {
     const text = extractMessageText(block);
     if (!text) continue;
-    if (text.includes(NEEDLE)) {
+
+    const textNorm = normalizeFa(text);
+    if (textNorm.includes(needleNorm)) {
       const meta = extractMessageMeta(block);
       const { usd, eur } = extractCurrencies(text);
 
@@ -126,9 +178,7 @@ async function main() {
         link: meta.link || null,
         date_text: meta.dateText || null,
         scraped_at: new Date().toISOString(),
-        // متن کامل برای دیباگ باقی می‌ماند
-        text,
-        // خروجی‌های هدف
+        text, // متن خام برای دیباگ
         usd_floor_mashhad: usd || null,
         eur_floor_mashhad: eur || null,
       };
@@ -162,8 +212,6 @@ async function main() {
         lines.push(`eur=${payload.eur_floor_mashhad.value}`);
       lines.push(`link=${payload.link || ""}`);
       lines.push(`date_text=${payload.date_text || ""}`);
-      // در صورت نیاز، متن کامل برای دیباگ:
-      // lines.push(`text<<EOF\n${payload.text}\nEOF`);
     }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
   }
