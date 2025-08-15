@@ -1,8 +1,10 @@
-name: F1 Rate: test
+name: F1 Rate: tttt
 
 on:
   workflow_dispatch: {}
-  # توجه: عمداً هیچ trigger دیگری فعال نیست. (push/pull_request/schedule حذف)
+  # اگر خواستی زمان‌بندی هم بگذاری (به وقت استانبول):
+  # schedule:
+  #   - cron: "*/20 * * * *"
 
 permissions:
   contents: write
