@@ -296,7 +296,6 @@ function extractTether(fullText) {
   return { sell: sell || null, buy: buy || null, mid: mid || null, unit: "تومان", raw_line: fullText };
 }
 
-
 // =======================================
 // SECTION 5.1 — Shared helpers for scanners
 // =======================================
@@ -307,14 +306,6 @@ function isBlockToday(meta, todayKey) {
   return { ok: dateKeyInTZ(dt) === todayKey, timeISO: dt.toISOString() };
 }
 
-// تازه‌تر بودن را بر اساس time_iso مقایسه می‌کنیم؛ اگر مساوی بود بر اساس id
-function compareByTimeThenIdDesc(a, b) {
-  const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
-  const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
-  if (tb !== ta) return tb - ta;            // بزرگ‌تر = جدیدتر
-  return (b?.id || 0) - (a?.id || 0);
-}
-
 // =======================================
 // SECTION 5.2 — Generic "Cash Today" with Double-Check (Herat / custom parsers)
 // =======================================
@@ -323,10 +314,11 @@ async function scanCashTodayGeneric(chan, parseFn) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  let before = null, pages = 0, maxId = 0;
+  let before = null, pages = 0;
   const picks = [];
   let sawTodayOnPage = false;
 
+  // مرحلهٔ اصلی: پیمایش امروز با before
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
     if (!blocks.length) break;
@@ -336,7 +328,7 @@ async function scanCashTodayGeneric(chan, parseFn) {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) { pageMinId = Math.min(pageMinId, meta.id); maxId = Math.max(maxId, meta.id); }
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -362,11 +354,14 @@ async function scanCashTodayGeneric(chan, parseFn) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // آخرین پیکِ امروز
+  // آخرین پیکِ امروز (بر اساس ID بزرگ‌تر)
   let pick = null;
-  if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
+  if (picks.length) {
+    picks.sort((a, b) => b.id - a.id);
+    pick = picks[0];
+  }
 
-  // Double-check: صفحهٔ اول تا سقف 30 پست، بدون break روی id<=maxId
+  // دابل‌چک: صفحهٔ اول تا سقف ۳۰ پست (بدون شرط id<=maxId)
   const freshBlocks = await fetchPage(chan.URL, null);
   const candidates = [];
   let scanned = 0;
@@ -376,7 +371,6 @@ async function scanCashTodayGeneric(chan, parseFn) {
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
-    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -395,8 +389,9 @@ async function scanCashTodayGeneric(chan, parseFn) {
   if (candidates.length) {
     candidates.sort((a, b) => b.id - a.id);
     const newest = candidates[0];
-    if (!pick) pick = newest;
-    else {
+    if (!pick) {
+      pick = newest;
+    } else {
       const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
       if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
     }
@@ -450,7 +445,7 @@ async function scanSuliToday() {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  let before = null, pages = 0, maxId = 0;
+  let before = null, pages = 0;
   const usdToday = [], eurToday = [];
 
   while (pages < MAX_PAGES_TODAY) {
@@ -461,7 +456,7 @@ async function scanSuliToday() {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) { pageMinId = Math.min(pageMinId, meta.id); maxId = Math.max(maxId, meta.id); }
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -490,7 +485,7 @@ async function scanSuliToday() {
   let usdPick = pickLatest(usdToday);
   let eurPick = pickLatest(eurToday);
 
-  // Double-check: تا 30 پست اول صفحهٔ اول، بدون break روی id<=maxId
+  // Double-check: تا 30 پست اول صفحهٔ اول (بدون شرط id<=maxId)
   const freshBlocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, null);
   const candUSD = [], candEUR = [];
   let scanned = 0;
@@ -500,7 +495,6 @@ async function scanSuliToday() {
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
-    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -577,156 +571,23 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5/5 — Tether Today (Head Probe + Backscan, Aban-only)
+// SECTION 5/5 — Tether Today (unified: pick newest "today", no lag, no special-case)
 // =======================================
 
-const TETHER_BACKSCAN_LIMIT = 500; // چند صد پیام آخر را برای یافتن «آخرین نرخ امروز» بررسی کن
-
 async function scanTetherToday(chan) {
-  const now = new Date();
-  const todayKey = dateKeyInTZ(now);
-
-  // اگر کانال Aban نباشد، از منطق قبلی (fallback) استفاده کن
-  const isAban = /\/AbanTetherPrice(?:\/|$|\?)/i.test(chan.URL);
-  if (!isAban) {
-    return await scanTetherToday_Fallback(chan); // ⬅️ همان منطق قبلی‌ات (Defined just below)
-  }
-
-  // 1) یک seed اولیه از نمای /s/ بگیر (ممکن است قدیمی باشد؛ فقط برای شروع)
-  let seedId = 0;
-  {
-    const blocks = await fetchPage(chan.URL, null);
-    for (const b of blocks) {
-      const m = extractMessageMeta(b);
-      if (m?.id) seedId = Math.max(seedId, m.id);
-    }
-    if (seedId === 0) {
-      // اگر حتی /s/ هم خالی بود، عددی محافظه‌کارانه بگذار (از 1 شروع می‌کنیم)
-      seedId = 1;
-    }
-  }
-
-  // 2) Head Probe — جست‌وجوی نمایی برای یافتن «بالاترین ID موجود» در سر کانال
-  const base = chan.URL.replace("/s/", "/").replace(/\/$/, "");
-  const existsMsg = async (id) => {
-    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
-    const url = `${base}/${id}?embed=1&__ts=${ts}`;
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-          accept: "text/html,application/xhtml+xml",
-        },
-      });
-      if (!res.ok) return null; // 404 یا خطا => وجود ندارد
-      const html = await res.text();
-
-      // برای صفحهٔ embed، کل HTML را به‌عنوان یک "block" واحد پاس بده
-      const block = html;
-      const text = extractMessageText(block);
-      const meta = extractMessageMeta(block) || {};
-      if (!meta.id) meta.id = id;
-      if (!meta.link) meta.link = `${base}/${id}`;
-      return { text, meta };
-    } catch {
-      return null;
-    }
-  };
-
-  // یافتن بازهٔ [low..high] که در آن highest موجود است
-  let low = seedId;
-  let high = seedId;
-  let step = 64;
-  let probe = await existsMsg(high);
-
-  // اگر seedId هم موجود نیست، تا موجود پیدا کنیم پایین می‌آییم
-  if (!probe) {
-    for (let back = seedId; back >= Math.max(1, seedId - 2048); back--) {
-      const p = await existsMsg(back);
-      if (p) { low = high = back; probe = p; break; }
-    }
-    if (!probe) {
-      // هیچ پیامی پیدا نشد؛ خروجی خالی
-      return { pick: null, foundToday: false, nextBefore: null };
-    }
-  }
-
-  // جهشی رو به جلو تا اولین جایی که پیام «وجود ندارد» (مرز بالا)
-  while (true) {
-    const nextId = high + step;
-    const p = await existsMsg(nextId);
-    if (p) {
-      low = nextId; high = nextId; // مرز پایین را هم بالا بیاور
-      step *= 2;
-      continue;
-    } else {
-      // اگر قدم خیلی بزرگ است، کوچکش کن
-      if (step > 1) {
-        step = Math.floor(step / 2);
-        continue;
-      }
-      // به مرز رسیدیم: high همان آخرین موجود نیست؛ last موجود بین low..high است
-      break;
-    }
-  }
-
-  // باینری سرچ بین (low..low+step) برای آخرین موجود
-  let left = low, right = low + 1; // چون در حلقهٔ بالا، step=1 شده
-  // (در این نقطه، right وجود ندارد و left وجود دارد)
-  let latestId = left;
-
-  // 3) Backscan — از آخرین ID موجود به پایین بیاییم تا «آخرین پستِ امروزِ قابل‌پارْس» را پیدا کنیم
-  const pickFromEmbed = async (id) => {
-    const p = await existsMsg(id);
-    if (!p || !p.text) return null;
-
-    // فیلتر الگوی نرخ تتر
-    if (!hasAny(p.text, chan.INCLUDE) || hasAny(p.text, chan.EXCLUDE)) return null;
-
-    // فقط پست‌های امروز
-    const { ok, timeISO } = isBlockToday(p.meta, todayKey);
-    if (!ok) return null;
-
-    const val = extractTether(p.text);
-    if (!val) return null;
-
-    const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-    return {
-      ...val,
-      id: p.meta.id ?? id,
-      link: p.meta.link || `${base}/${id}`,
-      time_iso: timeISO,
-      age_hours: age,
-    };
-  };
-
-  let pick = null;
-  // از آخرین ID موجود (latestId) تا حداکثر TETHER_BACKSCAN_LIMIT پیام به پایین
-  // نکته: چون از بالا به پایین می‌آییم، اولین تطبیق، «آخرینِ امروز» است؛ بعد از یافتن، break
-  for (let id = latestId; id >= Math.max(1, latestId - TETHER_BACKSCAN_LIMIT); id--) {
-    const cand = await pickFromEmbed(id);
-    if (cand) { pick = cand; break; }
-  }
-
-  return { pick, foundToday: Boolean(pick), nextBefore: null };
-}
-
-/**
- * Fallback برای کانال‌های غیر آبان: همان منطق قبلی (اسکن today با before در /s/).
- * این تابع ساده نگه داشته شده تا فقط نقش «بدون تغییر» را بازی کند.
- */
-async function scanTetherToday_Fallback(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
   let before = null, pages = 0;
   const picks = [];
 
+  // مرحلهٔ اصلی: پیمایش امروز با before
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
     if (!blocks.length) break;
 
-    let pageMinId = Infinity, sawAnyToday = false;
+    let pageMinId = Infinity;
+    let sawAnyToday = false;
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
@@ -735,35 +596,76 @@ async function scanTetherToday_Fallback(chan) {
       const text = extractMessageText(block);
       if (!text) continue;
 
+      // فقط پیام‌هایی که الگوی تتر دارند و کلمات استثنا ندارند
       if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
+      // فقط «امروز»
       const { ok, timeISO } = isBlockToday(meta, todayKey);
       if (!ok) continue;
 
       sawAnyToday = true;
 
+      // استخراج نرخ تتر (buy/sell/mid یا «نرخ تتر: …»)
       const val = extractTether(text);
-      if (val) {
-        const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-      }
+      if (!val) continue;
+
+      const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+      picks.push({
+        ...val,
+        id: meta.id ?? 0,
+        link: meta.link || null,
+        time_iso: timeISO || null,
+        age_hours: age,
+      });
     }
 
     pages += 1;
-    if (!sawAnyToday) break;
+    if (!sawAnyToday) break;                         // اگر این صفحه هیچ «امروز»ی نداشت، ادامه نده
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // «آخرینِ امروز» (اگر بود)
+  // آخرین پیکِ امروز بر اساس ID (بزرگ‌تر = جدیدتر)
   let pick = null;
   if (picks.length) {
-    picks.sort((a, b) => {
-      const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
-      const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
-      if (tb !== ta) return tb - ta;
-      return (b?.id || 0) - (a?.id || 0);
-    });
+    picks.sort((a, b) => b.id - a.id);
     pick = picks[0];
+  }
+
+  // دابل‌چک سبک: صفحهٔ اول تا سقف ۳۰ پست (بدون آستانه‌ی فاصلهٔ زمانی — همیشه تازه‌ترین را جایگزین می‌کنیم)
+  const freshBlocks = await fetchPage(chan.URL, null);
+  const candidates = [];
+  let scanned = 0;
+
+  for (const block of freshBlocks) {
+    scanned++; if (scanned > 30) break;
+
+    const meta = extractMessageMeta(block);
+    if (!meta?.id) continue;
+
+    const text = extractMessageText(block);
+    if (!text) continue;
+    if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
+
+    const { ok, timeISO } = isBlockToday(meta, todayKey);
+    if (!ok) continue;
+
+    const val = extractTether(text);
+    if (!val) continue;
+
+    const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+    candidates.push({
+      ...val,
+      id: meta.id,
+      link: meta.link || null,
+      time_iso: timeISO,
+      age_hours: age,
+    });
+  }
+
+  if (candidates.length) {
+    candidates.sort((a, b) => b.id - a.id);
+    // 🔁 بدون درنظرگرفتن MIN_GAP، همیشه تازه‌ترینِ امروز را جایگزین کن
+    pick = candidates[0];
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
