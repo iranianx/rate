@@ -4,7 +4,7 @@ import path from "path";
 
 const URL = "https://t.me/s/dollar_sulaymaniyah";
 const NEEDLE = "کف مشهد";
-const OUTDIR = "rate/data";
+const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
 
 // ————— Utilities —————
