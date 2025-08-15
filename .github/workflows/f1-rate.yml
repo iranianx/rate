@@ -2,9 +2,8 @@ name: F1 Rate: Sulaymaniyah (کف مشهد)
 
 on:
   workflow_dispatch: {}
-  # اگر خواستی زمان‌بندی هم بگذاری (به وقت استانبول):
-  # schedule:
-  #   - cron: "*/20 * * * *"
+  # توجه: عمداً هیچ trigger دیگری (push/pull_request/schedule) فعال نشده
+  # اگر بعداً تایید کردی، schedule را باز می‌کنیم.
 
 permissions:
   contents: write
