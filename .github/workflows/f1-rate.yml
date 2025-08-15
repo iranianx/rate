@@ -26,17 +26,30 @@ jobs:
         run: |
           pwd
           ls -la
-          find . -maxdepth 3 -type f | sort
+          find . -maxdepth 3 -type f | sort || true
 
       - name: "Run f1 scraper"
-        working-directory: rate
-        run: node scripts/f1-rate.mjs
+        run: |
+          if [ -f rate/scripts/f1-rate.mjs ]; then
+            node rate/scripts/f1-rate.mjs
+          elif [ -f scripts/f1-rate.mjs ]; then
+            node scripts/f1-rate.mjs
+          else
+            echo "ERROR: f1-rate.mjs not found under rate/scripts or scripts" >&2
+            exit 1
+          fi
 
       - name: "Show result"
-        working-directory: rate
         run: |
-          echo "Result file:"
-          cat data/f1-exit.json || true
+          if [ -f rate/data/f1-exit.json ]; then
+            echo "Result file:"
+            cat rate/data/f1-exit.json
+          elif [ -f data/f1-exit.json ]; then
+            echo "Result file:"
+            cat data/f1-exit.json
+          else
+            echo "WARN: f1-exit.json not found."
+          fi
 
       - name: "Commit & push if changed"
         run: |
@@ -44,7 +57,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [[ -n "$(git status --porcelain)" ]]; then
-            git add rate/data/f1-exit.json
+            # اضافه کن هرکدوم از مسیرها که وجود داشت
+            git add rate/data/f1-exit.json 2>/dev/null || true
+            git add data/f1-exit.json 2>/dev/null || true
             git commit -m "chore(f1): update Sulaymaniyah کف مشهد"
             git push
           else
