@@ -6,8 +6,9 @@ const URL = "https://t.me/s/dollar_sulaymaniyah";
 const NEEDLE = "کف مشهد";
 const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
+const TZ = "Europe/Istanbul";
+const MAX_PAGES = 12; // در عمل کافی است
 
-// ————— Utilities —————
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -25,20 +26,20 @@ function htmlToText(html) {
     .trim();
 }
 
-// نرمال‌سازی فارسی/عربی: ی/ي، ک/ك، تبدیل اعراب به فاصله، حذف کشیده و ZWNJ
+// نرمال‌سازی فارسی/عربی
 function normalizeFa(s) {
   if (!s) return s;
   return s
-    .replace(/\u200c/g, " ")          // ZWNJ → فاصله
-    .replace(/\u0640/g, "")           // کشیده
-    .replace(/[\u064B-\u0652]/g, " ") // همه اعراب → فاصله (نه حذف)
+    .replace(/\u200c/g, " ")
+    .replace(/\u0640/g, "")
+    .replace(/[\u064B-\u0652]/g, " ") // اعراب → فاصله
     .replace(/ي/g, "ی")
     .replace(/ك/g, "ک")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-// تبدیل همه گونه ارقام فارسی/عربی به لاتین + نرمال‌سازی جداکننده‌ها
+// تبدیل ارقام فارسی/عربی و جداکننده‌ها
 function faToEnDigits(str) {
   if (!str) return str;
   const map = {
@@ -49,21 +50,19 @@ function faToEnDigits(str) {
   return str.replace(/[۰-۹٠-٩٫٬،]/g, ch => map[ch] ?? ch);
 }
 
-// همه اعداد موجود در رشته (به ترتیب ظهور)
 function pickIntegersAll(s) {
   if (!s) return [];
   const t = faToEnDigits(s);
-  const list = [];
+  const out = [];
   const re = /([0-9][0-9.,\s]*)/g;
   let m;
   while ((m = re.exec(t))) {
     const clean = m[1].replace(/[^\d]/g, "");
-    if (clean) list.push(Number(clean));
+    if (clean) out.push(Number(clean));
   }
-  return list;
+  return out;
 }
 
-// اولین عدد صحیح
 function pickInteger(s) {
   const arr = pickIntegersAll(s);
   return arr.length ? arr[0] : null;
@@ -74,84 +73,91 @@ function extractBlocks(html) {
   return parts.slice(1).map(b => '<div class="tgme_widget_message_wrap' + b);
 }
 
+function extractMessageMeta(block) {
+  // لینک، زمان، آیدی
+  const a = block.match(
+    /<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
+  );
+  let link = null, dateText = null, id = null, datetimeISO = null;
+  if (a) {
+    link = a[1].startsWith("http") ? a[1] : `https://t.me${a[1]}`;
+    const title = a[0].match(/title="([^"]+)"/);
+    dateText = title ? title[1] : htmlToText(a[2] || "");
+    const idm = link.match(/\/(\d+)(?:\?.*)?$/);
+    if (idm) id = Number(idm[1]);
+  }
+  const t = block.match(/<time[^>]*datetime="([^"]+)"/);
+  if (t) datetimeISO = t[1];
+  return { link, dateText, id, datetimeISO };
+}
+
 function extractMessageText(block) {
   const m = block.match(
     /<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/
   );
-  if (!m) return null;
-  return htmlToText(m[1]);
+  return m ? htmlToText(m[1]) : null;
 }
 
-function extractMessageMeta(block) {
-  const m = block.match(
-    /<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
-  );
-  let link = null;
-  let dateText = null;
-  let id = null;
-  if (m) {
-    link = m[1].startsWith("http") ? m[1] : `https://t.me${m[1]}`;
-    const title = m[0].match(/title="([^"]+)"/);
-    dateText = title ? title[1] : htmlToText(m[2] || "");
-    // ID عددی پیام از انتهای لینک
-    const idm = link.match(/\/(\d+)(?:\?.*)?$/);
-    if (idm) id = Number(idm[1]);
-  }
-  return { link, dateText, id };
+// ابزارهای زمانی
+function dateKeyInTZ(d, tz = TZ) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d); // YYYY-MM-DD
+}
+function hoursBetween(a, b) {
+  return Math.abs((a.getTime() - b.getTime()) / 36e5);
 }
 
-// ————— Currency extraction —————
+// تشخیص یورو/دلار و استخراج اعداد
 function extractCurrenciesFromText(fullText) {
-  const normText = normalizeFa(fullText);
-  const lines = normText.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const norm = normalizeFa(fullText);
+  const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
 
   const isEUR = (l) => /(\bEUR\b|€|یورو)/i.test(l);
   const isUSD = (l) =>
     /(\bUSD\b|\$|دلار(?!\s*(استرالیا|کانادا))|دلار\s*امریکا|دلار\s*آمریکا)/i.test(l);
 
-  let usd = null;
-  let eur = null;
+  let usd = null, eur = null;
 
-  // اول: خطی که «کف مشهد» دارد را پیدا کن
+  // خط «کف مشهد»
   const floorLine = lines.find(l => l.includes("کف مشهد"));
   if (floorLine) {
-    // اگر همین خط «یورو» داشت، آن را یورو حساب کن، وگرنه دلار
-    const isEuroLine = isEUR(floorLine);
+    const euroLine = isEUR(floorLine);
     const nums = pickIntegersAll(floorLine);
-    if (isEuroLine && nums.length) {
-      const min = Math.min(...nums);
-      const max = Math.max(...nums);
-      eur = { value: min, min, max, unit: "تومان", raw_line: floorLine };
+    if (euroLine && nums.length) {
+      const min = Math.min(...nums), max = Math.max(...nums);
+      const avg = Math.round((min + max) / 2);
+      eur = { value: avg, min, max, unit: "تومان", raw_line: floorLine };
     } else {
       const val = nums.length ? nums[0] : null;
       if (val) usd = { value: val, unit: "تومان", raw_line: floorLine };
     }
   }
 
-  // سپس، اگر یورو هنوز خالی بود، به‌دنبال خطوط دارای «یورو» بگرد
+  // اگر یورو هنوز خالی بود، سایر خطوط «یورو»
   if (!eur) {
     for (const line of lines) {
       if (isEUR(line)) {
         const nums = pickIntegersAll(line);
         if (nums.length) {
-          const min = Math.min(...nums);
-          const max = Math.max(...nums);
-          eur = { value: min, min, max, unit: "تومان", raw_line: line };
+          const min = Math.min(...nums), max = Math.max(...nums);
+          const avg = Math.round((min + max) / 2);
+          eur = { value: avg, min, max, unit: "تومان", raw_line: line };
           break;
         }
       }
     }
   }
 
-  // اگر دلار هنوز خالی بود، خطوط دارای «دلار» را بررسی کن
+  // اگر دلار هنوز خالی بود، سایر خطوط «دلار»
   if (!usd) {
     for (const line of lines) {
       if (isUSD(line)) {
         const val = pickInteger(line);
-        if (val) {
-          usd = { value: val, unit: "تومان", raw_line: line };
-          break;
-        }
+        if (val) { usd = { value: val, unit: "تومان", raw_line: line }; break; }
       }
     }
   }
@@ -159,93 +165,135 @@ function extractCurrenciesFromText(fullText) {
   return { usd, eur };
 }
 
-// ————— Main —————
-async function main() {
-  const res = await fetch(URL, {
+async function fetchPage(beforeId = null) {
+  const url = beforeId ? `${URL}?before=${beforeId}` : URL;
+  const res = await fetch(url, {
     headers: {
       "user-agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
       accept: "text/html,application/xhtml+xml",
     },
   });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const html = await res.text();
   const blocks = extractBlocks(html);
+  return blocks;
+}
 
-  const needleNorm = normalizeFa(NEEDLE);
-  const candidates = [];
+async function main() {
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
 
-  for (const block of blocks) {
-    const text = extractMessageText(block);
-    if (!text) continue;
-    const meta = extractMessageMeta(block);
-    const textNorm = normalizeFa(text);
-    if (textNorm.includes(needleNorm)) {
-      // جمع کردن همهٔ تطبیق‌ها
+  let before = null;
+  let pages = 0;
+
+  let usdPick = null; // {value, unit, raw_line, link, id, time_iso, age_hours}
+  let eurPick = null;
+
+  let stop = false;
+
+  while (!stop && pages < MAX_PAGES) {
+    const blocks = await fetchPage(before);
+    if (!blocks.length) break;
+
+    let pageMinId = Infinity;
+    let pageHasToday = false;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const textNorm = normalizeFa(text);
+      if (!textNorm.includes(normalizeFa(NEEDLE))) continue;
+
+      // تعیین «امروز»
+      let isToday = false;
+      let timeISO = null;
+      if (meta.datetimeISO) {
+        const dt = new Date(meta.datetimeISO);
+        const key = dateKeyInTZ(dt);
+        isToday = (key === todayKey);
+        timeISO = dt.toISOString();
+      } else {
+        // اگر datetime نبود، محافظه‌کارانه: امروز فرض نکن
+        isToday = false;
+      }
+
+      if (isToday) pageHasToday = true;
+      if (!isToday) continue; // فقط امروز را می‌خواهیم
+
       const { usd, eur } = extractCurrenciesFromText(text);
-      candidates.push({
-        id: meta.id ?? 0,
-        link: meta.link || null,
-        date_text: meta.dateText || null,
-        text,
-        usd,
-        eur,
-      });
+
+      const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
+
+      if (!usdPick && usd) {
+        usdPick = {
+          ...usd,
+          link: meta.link || null,
+          id: meta.id || null,
+          time_iso: timeISO,
+          age_hours: age,
+        };
+      }
+      if (!eurPick && eur) {
+        eurPick = {
+          ...eur,
+          link: meta.link || null,
+          id: meta.id || null,
+          time_iso: timeISO,
+          age_hours: age,
+        };
+      }
+      if (usdPick && eurPick) { stop = true; break; }
     }
+
+    // آماده صفحه بعد
+    before = Number.isFinite(pageMinId) ? pageMinId : before;
+    pages += 1;
+
+    // اگر در این صفحه هیچ پیام «امروز» نبود، یعنی از امروز عبور کردیم → متوقف شو
+    if (!pageHasToday) break;
+    // اگر id حداقلی تغییر نکرد (ایراد صفحه‌بندی)، متوقف شو
+    if (!before) break;
   }
 
-  // انتخاب «جدیدترین» بر اساس بالاترین ID
-  let latest = null;
-  if (candidates.length) {
-    candidates.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
-    const top = candidates[0];
-    latest = {
-      status: "ok",
-      found: true,
-      source: URL,
-      needle: NEEDLE,
-      link: top.link,
-      date_text: top.date_text,
-      scraped_at: new Date().toISOString(),
-      text: top.text,
-      usd_floor_mashhad: top.usd || null,
-      eur_floor_mashhad: top.eur || null,
-      message_id: top.id || null
-    };
-  }
-
-  const payload =
-    latest ||
-    {
-      status: "ok",
-      found: false,
-      message: `No message containing "${NEEDLE}" was found on first page.`,
-      source: URL,
-      needle: NEEDLE,
-      scraped_at: new Date().toISOString(),
-    };
+  // خروجی نهایی
+  const payload = {
+    status: "ok",
+    source: URL,
+    needle: NEEDLE,
+    scraped_at: new Date().toISOString(),
+    // فقط اگر امروز یافت شده باشند مقدار می‌گیرند
+    usd_floor_mashhad: usdPick || null,
+    eur_floor_mashhad: eurPick || null,
+    usd_found_today: Boolean(usdPick),
+    eur_found_today: Boolean(eurPick),
+  };
 
   ensureDir(OUTDIR);
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
 
-  // GitHub Actions outputs
   if (process.env.GITHUB_OUTPUT) {
     const lines = [];
-    lines.push(`found=${payload.found}`);
-    if (payload.found) {
-      if (payload.usd_floor_mashhad?.value)
-        lines.push(`usd=${payload.usd_floor_mashhad.value}`);
-      if (payload.eur_floor_mashhad?.value)
-        lines.push(`eur=${payload.er_floor_mashhad.value}`);
-      lines.push(`link=${payload.link || ""}`);
-      lines.push(`date_text=${payload.date_text || ""}`);
-      if (payload.message_id) lines.push(`message_id=${payload.message_id}`);
+    lines.push(`usd_found_today=${payload.usd_found_today}`);
+    lines.push(`eur_found_today=${payload.eur_found_today}`);
+    if (payload.usd_floor_mashhad?.value) {
+      lines.push(`usd=${payload.usd_floor_mashhad.value}`);
+      if (payload.usd_floor_mashhad.id) lines.push(`usd_msg=${payload.usd_floor_mashhad.id}`);
+    }
+    if (payload.eur_floor_mashhad?.value) {
+      lines.push(`eur=${payload.eur_floor_mashhad.value}`);
+      if (payload.eur_floor_mashhad.id) lines.push(`eur_msg=${payload.eur_floor_mashhad.id}`);
     }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
   }
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error("ERROR:", err);
   process.exit(1);
 });
