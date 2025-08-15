@@ -2,8 +2,7 @@ name: F1 Rate: Sulaymaniyah (کف مشهد)
 
 on:
   workflow_dispatch: {}
-  # توجه: عمداً هیچ trigger دیگری (push/pull_request/schedule) فعال نشده
-  # اگر بعداً تایید کردی، schedule را باز می‌کنیم.
+  # توجه: عمداً هیچ trigger دیگری فعال نیست. (push/pull_request/schedule حذف)
 
 permissions:
   contents: write
