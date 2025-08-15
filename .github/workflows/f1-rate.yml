@@ -1,4 +1,4 @@
-name: F1 Rate: Sulaymaniyah (کف مشهد)
+name: F1 Rate: test
 
 on:
   workflow_dispatch: {}
