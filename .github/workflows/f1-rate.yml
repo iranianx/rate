@@ -1,13 +1,10 @@
 name: F1 Rate: tttt
 
 on:
-  workflow_dispatch: {}
-  # اگر خواستی زمان‌بندی هم بگذاری (به وقت استانبول):
-  # schedule:
-  #   - cron: "*/20 * * * *"
+  workflow_dispatch: {}   # فقط دستی
 
 permissions:
-  contents: write
+  contents: write         # اجازهٔ commit/push
 
 jobs:
   fetch:
