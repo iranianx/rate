@@ -4,19 +4,18 @@ import path from "path";
 
 const URL = "https://t.me/s/dollar_sulaymaniyah";
 const NEEDLE = "کف مشهد";
+const EXCLUDE = [/فردا/g, /فردایی/g, /آتی/g]; // پست‌های آتی/فردایی حذف
 const OUTDIR = "rate/data";
 const OUTFILE = path.join(OUTDIR, "f1-exit.json");
 
 // تبدیل ارقام فارسی/عربی به لاتین
 function normalizeDigits(s) {
-  const map = {
-    "۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
-    "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9",
-  };
+  const map = { "۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
+                "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9" };
   return s.replace(/[۰-۹٠-٩]/g, d => map[d] || d);
 }
 
-// ساده‌سازی HTML → متن
+// HTML → متن ساده
 function htmlToText(html) {
   return html
     .replace(/<\s*br\s*\/?>/gi, "\n")
@@ -36,27 +35,18 @@ function extractBlocks(html) {
 }
 
 function extractMessageText(block) {
-  const m = block.match(
-    /<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/
-  );
+  const m = block.match(/<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/);
   if (!m) return null;
   return htmlToText(m[1]);
 }
 
 function extractMessageMeta(block) {
-  const m = block.match(
-    /<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
-  );
-  let link = null;
-  let dateText = null;
+  const m = block.match(/<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+  let link = null, dateText = null;
   if (m) {
     link = m[1].startsWith("http") ? m[1] : `https://t.me${m[1]}`;
     const title = m[0].match(/title="([^"]+)"/);
-    if (title) {
-      dateText = title[1];
-    } else {
-      dateText = htmlToText(m[2] || "");
-    }
+    dateText = title ? title[1] : htmlToText(m[2] || "");
   }
   return { link, dateText };
 }
@@ -65,12 +55,18 @@ function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
 
-// گرفتن عددهای سبک "105300_104900" بعد از نام ارز
-function parseCurrencies(text) {
-  const t = normalizeDigits(text).replace(/,/g, ""); // ارقام لاتین، حذف ویرگول
-  const rxPair = /([0-9]{4,6})\s*[_\/\-]\s*([0-9]{4,6})/; // جفت قیمت
+// پاک‌سازی جداکننده‌ها و شکل‌های متداول عدد
+function sanitizeNumbersArea(s) {
+  let t = normalizeDigits(s);
+  t = t.replace(/[,\u066C\u066B\u060C]/g, ""); // , ، Arabic comma/decimal
+  t = t.replace(/\./g, "");                     // نقطه به‌عنوان هزارگان
+  return t;
+}
 
-  // الگوهای نام ارز
+// پارس قیمت‌ها نزدیک به برچسب ارز
+function parseCurrencies(text) {
+  const t = sanitizeNumbersArea(text);
+  const rxPair = /([0-9]{4,7})\s*[_\/\-]\s*([0-9]{4,7})/; // 5~6 رقم هم امن است
   const labels = [
     { key: "usd", rx: /(دلار|USD|\$)/i },
     { key: "eur", rx: /(یورو|EUR|€)/i },
@@ -81,56 +77,46 @@ function parseCurrencies(text) {
     eur_raw: null, eur_high: null, eur_low: null,
   };
 
-  // سطر به سطر چک کنیم تا نزدیکی ارز به جفت‌عدد حفظ شود
   const lines = t.split(/\n+/);
+  // حالت «هم‌خط»
   for (const line of lines) {
     for (const { key, rx } of labels) {
       if (rx.test(line)) {
         const m = line.match(rxPair);
         if (m) {
           const [ , a, b ] = m;
-          // ترتیب را بدون پیش‌فرض‌سازی نگه می‌داریم ولی برچسب می‌زنیم high/low
           const n1 = Number(a), n2 = Number(b);
-          const high = Math.max(n1, n2);
-          const low  = Math.min(n1, n2);
-          out[`${key}_raw`] = `${a}_${b}`;
-          out[`${key}_high`] = high;
-          out[`${key}_low`]  = low;
+          out[`${key}_raw`]  = `${a}_${b}`;
+          out[`${key}_high`] = Math.max(n1, n2);
+          out[`${key}_low`]  = Math.min(n1, n2);
         }
       }
     }
   }
-
-  // اگر داخل یک خط نبود، شاید ارز و قیمت در دو خط مجاور باشند
-  if (!out.usd_raw || !out.eur_raw) {
-    for (let i = 0; i < lines.length; i++) {
-      const L = lines[i];
-      const N = lines[i + 1] || "";
-      const mNext = N.match(rxPair);
-      if (mNext) {
-        for (const { key, rx } of labels) {
-          if (!out[`${key}_raw`] && rx.test(L)) {
-            const [ , a, b ] = mNext;
-            const n1 = Number(a), n2 = Number(b);
-            const high = Math.max(n1, n2);
-            const low  = Math.min(n1, n2);
-            out[`${key}_raw`] = `${a}_${b}`;
-            out[`${key}_high`] = high;
-            out[`${key}_low`]  = low;
-          }
+  // حالت «ارز در این خط، عدد در خط بعد»
+  for (let i = 0; i < lines.length; i++) {
+    const L = lines[i];
+    const N = lines[i + 1] || "";
+    const mNext = N.match(rxPair);
+    if (mNext) {
+      for (const { key, rx } of labels) {
+        if (!out[`${key}_raw`] && rx.test(L)) {
+          const [ , a, b ] = mNext;
+          const n1 = Number(a), n2 = Number(b);
+          out[`${key}_raw`]  = `${a}_${b}`;
+          out[`${key}_high`] = Math.max(n1, n2);
+          out[`${key}_low`]  = Math.min(n1, n2);
         }
       }
     }
   }
-
   return out;
 }
 
 async function main() {
   const res = await fetch(URL, {
     headers: {
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
       "accept": "text/html,application/xhtml+xml",
     },
   });
@@ -142,15 +128,11 @@ async function main() {
   for (const block of blocks) {
     const text = extractMessageText(block);
     if (!text) continue;
-    if (text.includes(NEEDLE)) {
-      const meta = extractMessageMeta(block);
-      latest = {
-        text,
-        link: meta.link,
-        date_text: meta.dateText,
-      };
-      break; // اولین تطبیق (جدیدترین) کافی است
-    }
+    if (!text.includes(NEEDLE)) continue;
+    if (EXCLUDE.some(rx => rx.test(text))) continue; // حذف فردایی/آتی
+    const meta = extractMessageMeta(block);
+    latest = { text, link: meta.link, date_text: meta.dateText };
+    break; // جدیدترین کافی است
   }
 
   ensureDir(OUTDIR);
@@ -159,7 +141,7 @@ async function main() {
     const payload = {
       status: "ok",
       found: false,
-      message: `No message containing "${NEEDLE}" was found on first page.`,
+      message: `No message containing "${NEEDLE}" on first page (non-future).`,
       scraped_at: new Date().toISOString(),
       source: URL,
       needle: NEEDLE,
@@ -168,20 +150,17 @@ async function main() {
     };
     fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
     console.log(payload);
-    if (process.env.GITHUB_OUTPUT) {
-      fs.appendFileSync(process.env.GITHUB_OUTPUT, `found=false\n`);
-    }
+    if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `found=false\n`);
     return;
   }
 
   const cur = parseCurrencies(latest.text);
-
   const payload = {
     status: "ok",
     found: true,
     text: latest.text,
     link: latest.link,
-    date_text: latest.date_text || latest.dateText || null,
+    date_text: latest.date_text || null,
     scraped_at: new Date().toISOString(),
     source: URL,
     needle: NEEDLE,
@@ -192,16 +171,17 @@ async function main() {
   console.log(payload);
 
   if (process.env.GITHUB_OUTPUT) {
-    const lines = [];
-    lines.push(`found=true`);
-    lines.push(`usd_raw=${payload.usd_raw ?? ""}`);
-    lines.push(`usd_high=${payload.usd_high ?? ""}`);
-    lines.push(`usd_low=${payload.usd_low ?? ""}`);
-    lines.push(`eur_raw=${payload.eur_raw ?? ""}`);
-    lines.push(`eur_high=${payload.eur_high ?? ""}`);
-    lines.push(`eur_low=${payload.eur_low ?? ""}`);
-    lines.push(`link=${payload.link || ""}`);
-    lines.push(`date_text=${payload.date_text || ""}`);
+    const lines = [
+      `found=true`,
+      `usd_raw=${payload.usd_raw ?? ""}`,
+      `usd_high=${payload.usd_high ?? ""}`,
+      `usd_low=${payload.usd_low ?? ""}`,
+      `eur_raw=${payload.eur_raw ?? ""}`,
+      `eur_high=${payload.eur_high ?? ""}`,
+      `eur_low=${payload.eur_low ?? ""}`,
+      `link=${payload.link || ""}`,
+      `date_text=${payload.date_text || ""}`,
+    ];
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
   }
 }
