@@ -5,18 +5,37 @@ import path from "path";
 const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
 const TZ = "Europe/Istanbul";
-const MAX_PAGES = 16;
+const MAX_PAGES_TODAY = 16;
+const MAX_PAGES_HISTORY = 40;
 
 // ——— Channels ———
-const HERAT = {
-  URL: "https://t.me/s/Herat_Tomen",
-  INCLUDE: ["نقدی","نقـدی","نـقدی","نقـدی","نـقـدی","نــقـدی","امروزی","نـــقـدی"],
-  EXCLUDE: ["فردا","فردایی","آتی"],
-};
-
-const SULI = {
-  URL: "https://t.me/s/dollar_sulaymaniyah",
-  NEEDLE: "کف مشهد",
+const CH = {
+  Herat_Tomen: {
+    URL: "https://t.me/s/Herat_Tomen",
+    INCLUDE: ["نقدی","نقـدی","نـقدی","نقـدی","نـقـدی","نــقـدی","امروزی","امروز","نـــقـدی"],
+    EXCLUDE: ["فردا","فردایی","آتی"],
+  },
+  Dollar_Tehran3bze: {
+    URL: "https://t.me/s/Dollar_Tehran3bze",
+    INCLUDE: ["نقدی","نقـدی","نـقدی","نقـدی","نـقـدی","نــقـدی","نـــقـدی"],
+    EXCLUDE: ["فردا","فردایی","آتی"],
+  },
+  Dollar_Sulaymaniyah: {
+    URL: "https://t.me/s/dollar_sulaymaniyah",
+    INCLUDE: ["نقدی","مشهد","کف مشهد","کف"],
+    EXCLUDE: ["فردا","فردایی","آتی"],
+    NEEDLE: "کف مشهد",
+  },
+  AbanTetherPrice: {
+    URL: "https://t.me/s/AbanTetherPrice",
+    INCLUDE: ["فروش","تتر","فروش:","خرید:","خرید"],
+    EXCLUDE: ["فردا","فردایی","آتی"],
+  },
+  TetherLand: {
+    URL: "https://t.me/s/TetherLand",
+    INCLUDE: ["نرخ","تتر:","تتر"],
+    EXCLUDE: ["فردا","فردایی","آتی"],
+  },
 };
 
 // ——— FS util ———
@@ -71,6 +90,11 @@ function pickIntegersAll(s) {
   }
   return out;
 }
+const hasAny = (text, list) => {
+  const t = normalizeFa(text);
+  const arr = list.map(x => normalizeFa(x));
+  return arr.some(k => t.includes(k));
+};
 
 // ——— Telegram parse ———
 function extractBlocks(html) {
@@ -102,7 +126,6 @@ function extractMessageMeta(block) {
   if (t) datetimeISO = t[1];
   return { link, dateText, id, datetimeISO };
 }
-
 async function fetchPage(url, beforeId = null) {
   const u = beforeId ? `${url}?before=${beforeId}` : url;
   const res = await fetch(u, {
@@ -122,48 +145,8 @@ function dateKeyInTZ(d, tz = TZ) {
 }
 function hoursBetween(a, b) { return Math.abs((a.getTime() - b.getTime()) / 36e5); }
 
-// ——— HERAT: match logic ———
-function buildMatcher(includeArr, excludeArr) {
-  const inc = includeArr.map(x => normalizeFa(x));
-  const exc = excludeArr.map(x => normalizeFa(x));
-  return (text) => {
-    const t = normalizeFa(text);
-    const hasInc = inc.some(k => t.includes(k));
-    const hasExc = exc.some(k => t.includes(k));
-    return hasInc && !hasExc;
-  };
-}
-function extractHeratValue(fullText) {
-  // از خطوطی که عبارت‌های include دارند عددها را جمع کن
-  const norm = normalizeFa(fullText);
-  const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  const inc = buildMatcher(HERAT.INCLUDE, []).bind(null);
-
-  // ابتدا فقط خطوطی که شامل یکی از کلیدهای include هستند
-  const candLines = lines.filter(ln => inc(ln));
-
-  // اگر چیزی پیدا نشد، از کل پیام اعداد را بردار
-  const targetLines = candLines.length ? candLines : lines;
-
-  // همه اعداد این خطوط
-  let nums = [];
-  for (const ln of targetLines) nums.push(...pickIntegersAll(ln));
-  nums = nums.filter(Boolean);
-
-  if (!nums.length) return null;
-
-  // اگر دو عدد یا بیشتر وجود داشت، میانگین کمترین و بیشترین، در غیر این صورت همان تک‌عدد
-  if (nums.length >= 2) {
-    const min = Math.min(...nums), max = Math.max(...nums);
-    const avg = Math.round((min + max) / 2);
-    return { value: avg, min, max, unit: "تومان", raw_line: targetLines.join(" | ") };
-  } else {
-    return { value: nums[0], unit: "تومان", raw_line: targetLines[0] };
-  }
-}
-
-// ——— SULI: currency extraction ———
-function extractCurrenciesFromText(fullText) {
+// ——— SULI (کف مشهد) ———
+function extractCurrenciesFromSuli(fullText) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
 
@@ -206,58 +189,49 @@ function extractCurrenciesFromText(fullText) {
   return { usd, eur };
 }
 
-// ——— Scanners ———
-async function scanHeratToday() {
-  const now = new Date();
-  const todayKey = dateKeyInTZ(now);
-  const matchOk = buildMatcher(HERAT.INCLUDE, HERAT.EXCLUDE);
+// ——— HERAT helpers ———
+function extractHeratValue(fullText, include, exclude) {
+  const norm = normalizeFa(fullText);
+  const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const candLines = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
+  const targetLines = candLines.length ? candLines : lines;
 
-  let before = null, pages = 0;
-  const picks = []; // candidates for today
+  let nums = [];
+  for (const ln of targetLines) nums.push(...pickIntegersAll(ln));
+  nums = nums.filter(Boolean);
+  if (!nums.length) return null;
 
-  while (pages < MAX_PAGES) {
-    const blocks = await fetchPage(HERAT.URL, before);
-    if (!blocks.length) break;
-    let pageMinId = Infinity;
-    let sawAnyToday = false;
-
-    for (const block of blocks) {
-      const meta = extractMessageMeta(block);
-      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
-
-      const text = extractMessageText(block);
-      if (!text) continue;
-
-      if (!matchOk(text)) continue;
-
-      let isToday = false, timeISO = null;
-      if (meta.datetimeISO) {
-        const dt = new Date(meta.datetimeISO);
-        if (dateKeyInTZ(dt) === todayKey) {
-          isToday = true;
-          timeISO = dt.toISOString();
-        }
-      }
-      if (!isToday) continue;
-      sawAnyToday = true;
-
-      const val = extractHeratValue(text);
-      if (val) {
-        const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
-        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-      }
-    }
-
-    pages += 1;
-    if (!sawAnyToday) break;
-    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+  if (nums.length >= 2) {
+    const min = Math.min(...nums), max = Math.max(...nums);
+    const avg = Math.round((min + max) / 2);
+    return { value: avg, min, max, unit: "تومان", raw_line: targetLines.join(" | ") };
+  } else {
+    return { value: nums[0], unit: "تومان", raw_line: targetLines[0] };
   }
-
-  if (!picks.length) return { pick: null, foundToday: false };
-  picks.sort((a, b) => b.id - a.id);
-  return { pick: picks[0], foundToday: true };
 }
 
+// ——— TETHER helpers ———
+function extractTether(fullText) {
+  // فروش/خرید را جدا بگیر، و mid را اگر هر دو موجود بود بساز
+  const norm = normalizeFa(fullText);
+  const t = faToEnDigits(norm);
+
+  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+
+  const sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
+  const buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
+
+  let mid = null;
+  if (sell && buy) mid = Math.round((sell + buy) / 2);
+  else if (sell) mid = sell;
+  else if (buy)  mid = buy;
+
+  if (!sell && !buy) return null;
+  return { sell: sell || null, buy: buy || null, mid, unit: "تومان", raw_line: fullText };
+}
+
+// ——— Scanners ———
 async function scanSuliToday() {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
@@ -265,8 +239,8 @@ async function scanSuliToday() {
   let before = null, pages = 0;
   const usdToday = [], eurToday = [];
 
-  while (pages < MAX_PAGES) {
-    const blocks = await fetchPage(SULI.URL, before);
+  while (pages < MAX_PAGES_TODAY) {
+    const blocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, before);
     if (!blocks.length) break;
 
     let pageMinId = Infinity;
@@ -280,20 +254,22 @@ async function scanSuliToday() {
       if (!text) continue;
 
       const textNorm = normalizeFa(text);
-      if (!textNorm.includes(normalizeFa(SULI.NEEDLE))) continue;
+      // باید حتماً نیاز «کف مشهد» دیده شود، و در عین حال excludeها داخل پیام نباشند
+      if (!textNorm.includes(normalizeFa(CH.Dollar_Sulaymaniyah.NEEDLE))) continue;
+      if (hasAny(text, CH.Dollar_Sulaymaniyah.EXCLUDE)) continue;
 
       let isToday = false, timeISO = null;
       if (meta.datetimeISO) {
         const dt = new Date(meta.datetimeISO);
         if (dateKeyInTZ(dt) === todayKey) {
-          isToday = true;
-          timeISO = dt.toISOString();
+          isToday = true; timeISO = dt.toISOString();
         }
       }
       if (!isToday) continue;
+
       sawAnyToday = true;
 
-      const { usd, eur } = extractCurrenciesFromText(text);
+      const { usd, eur } = extractCurrenciesFromSuli(text);
       const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
       if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
       if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
@@ -314,25 +290,260 @@ async function scanSuliToday() {
   };
 }
 
+async function scanCashToday(chan) {
+  // برای کانال‌های نقدی (هرات، تهران3بزه): include/exclude و انتخاب آخرین پست امروز
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
+
+  let before = null, pages = 0;
+  const picks = [];
+
+  while (pages < MAX_PAGES_TODAY) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+
+    let pageMinId = Infinity;
+    let sawAnyToday = false;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const hasInc = hasAny(text, chan.INCLUDE);
+      const hasExc = hasAny(text, chan.EXCLUDE);
+      if (!hasInc || hasExc) continue;
+
+      // امروز؟
+      let isToday = false, timeISO = null;
+      if (meta.datetimeISO) {
+        const dt = new Date(meta.datetimeISO);
+        if (dateKeyInTZ(dt) === todayKey) { isToday = true; timeISO = dt.toISOString(); }
+      }
+      if (!isToday) continue;
+
+      sawAnyToday = true;
+
+      const val = extractHeratValue(text, chan.INCLUDE, chan.EXCLUDE);
+      if (val) {
+        const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
+        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      }
+    }
+
+    pages += 1;
+    if (!sawAnyToday) break;
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+  }
+
+  if (!picks.length) return { pick: null, foundToday: false };
+  picks.sort((a, b) => b.id - a.id);
+  return { pick: picks[0], foundToday: true };
+}
+
+async function scanHeratFull() {
+  // هرات با future_only و last_cash
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
+
+  let before = null, pages = 0;
+
+  const todayPicks = [];
+  let sawTodayAny = false;
+  let sawTodayFuture = false;
+
+  while (pages < MAX_PAGES_TODAY) {
+    const blocks = await fetchPage(CH.Herat_Tomen.URL, before);
+    if (!blocks.length) break;
+
+    let pageMinId = Infinity;
+    let sawAnyTodayOnThisPage = false;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      let isToday = false, timeISO = null;
+      if (meta.datetimeISO) {
+        const dt = new Date(meta.datetimeISO);
+        if (dateKeyInTZ(dt) === todayKey) { isToday = true; timeISO = dt.toISOString(); }
+      }
+      if (!isToday) continue;
+
+      sawAnyTodayOnThisPage = true;
+      sawTodayAny = true;
+
+      const hasInc = hasAny(text, CH.Herat_Tomen.INCLUDE);
+      const hasExc = hasAny(text, CH.Herat_Tomen.EXCLUDE);
+
+      if (hasExc && !hasInc) {
+        sawTodayFuture = true;
+        continue;
+      }
+      if (hasInc && !hasExc) {
+        const val = extractHeratValue(text, CH.Herat_Tomen.INCLUDE, CH.Herat_Tomen.EXCLUDE);
+        if (val) {
+          const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
+          todayPicks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+        }
+      }
+    }
+
+    pages += 1;
+    if (!sawAnyTodayOnThisPage) break;
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+  }
+
+  let usd_herat_cash = null;
+  if (todayPicks.length) {
+    todayPicks.sort((a, b) => b.id - a.id);
+    usd_herat_cash = todayPicks[0];
+  }
+
+  // اگر امروز نقدی نبود، آخرین نقدی معتبر گذشته
+  let herat_last_cash = null;
+  if (!usd_herat_cash) {
+    let before2 = before;
+    let pages2 = 0;
+    outer: while (pages2 < MAX_PAGES_HISTORY) {
+      const blocks = await fetchPage(CH.Herat_Tomen.URL, before2);
+      if (!blocks.length) break;
+      let nextBefore = Infinity;
+
+      for (const block of blocks) {
+        const meta = extractMessageMeta(block);
+        if (meta.id) nextBefore = Math.min(nextBefore, meta.id);
+
+        const text = extractMessageText(block);
+        if (!text) continue;
+
+        const hasInc = hasAny(text, CH.Herat_Tomen.INCLUDE);
+        const hasExc = hasAny(text, CH.Herat_Tomen.EXCLUDE);
+        if (hasInc && !hasExc) {
+          const val = extractHeratValue(text, CH.Herat_Tomen.INCLUDE, CH.Herat_Tomen.EXCLUDE);
+          if (val) {
+            const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
+            const age = dtISO ? hoursBetween(now, new Date(dtISO)) : null;
+            herat_last_cash = { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age };
+            break outer;
+          }
+        }
+      }
+
+      pages2 += 1;
+      if (Number.isFinite(nextBefore)) before2 = nextBefore; else break;
+    }
+  }
+
+  const herat_found_today = Boolean(usd_herat_cash);
+  const herat_future_only = !herat_found_today && sawTodayAny && sawTodayFuture;
+
+  return { usd_herat_cash, herat_found_today, herat_future_only, herat_last_cash };
+}
+
+async function scanTetherToday(chan) {
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
+
+  let before = null, pages = 0;
+  const picks = [];
+
+  while (pages < MAX_PAGES_TODAY) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+
+    let pageMinId = Infinity;
+    let sawAnyToday = false;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      const hasInc = hasAny(text, chan.INCLUDE);
+      const hasExc = hasAny(text, chan.EXCLUDE);
+      if (!hasInc || hasExc) continue;
+
+      let isToday = false, timeISO = null;
+      if (meta.datetimeISO) {
+        const dt = new Date(meta.datetimeISO);
+        if (dateKeyInTZ(dt) === todayKey) { isToday = true; timeISO = dt.toISOString(); }
+      }
+      if (!isToday) continue;
+
+      sawAnyToday = true;
+
+      const val = extractTether(text);
+      if (val) {
+        const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
+        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      }
+    }
+
+    pages += 1;
+    if (!sawAnyToday) break;
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+  }
+
+  if (!picks.length) return { pick: null, foundToday: false };
+  picks.sort((a, b) => b.id - a.id);
+  return { pick: picks[0], foundToday: true };
+}
+
 // ——— Main ———
 async function main() {
-  const herat = await scanHeratToday();         // اول هرات
-  const suli  = await scanSuliToday();          // بعد سلیمانیه
+  // Herat (full features)
+  const herat = await scanHeratFull();
+
+  // Tehran 3bze (cash today)
+  const tehran = await scanCashToday(CH.Dollar_Tehran3bze);
+
+  // Sulaymaniyah (USD/EUR today with "کف مشهد")
+  const suli = await scanSuliToday();
+
+  // Tether channels
+  const aban  = await scanTetherToday(CH.AbanTetherPrice);
+  const tland = await scanTetherToday(CH.TetherLand);
 
   const payload = {
     status: "ok",
     scraped_at: new Date().toISOString(),
-    // Herat
-    source_herat: HERAT.URL,
-    usd_herat_cash: herat.pick || null,
-    herat_found_today: herat.foundToday,
-    // Sulaymaniyah
-    source_sulaymaniyah: SULI.URL,
-    needle: SULI.NEEDLE,
+
+    // — Herat
+    source_herat: CH.Herat_Tomen.URL,
+    usd_herat_cash: herat.usd_herat_cash || null,
+    herat_found_today: herat.herat_found_today,
+    herat_future_only: herat.herat_future_only || false,
+    herat_last_cash: herat.herat_last_cash || null,
+
+    // — Tehran3bze
+    source_tehran3bze: CH.Dollar_Tehran3bze.URL,
+    usd_tehran_cash: tehran.pick || null,
+    tehran_found_today: tehran.foundToday,
+
+    // — Sulaymaniyah
+    source_sulaymaniyah: CH.Dollar_Sulaymaniyah.URL,
+    needle: CH.Dollar_Sulaymaniyah.NEEDLE,
     usd_floor_mashhad: suli.usdPick || null,
     eur_floor_mashhad: suli.eurPick || null,
     usd_found_today: suli.usdFoundToday,
     eur_found_today: suli.eurFoundToday,
+
+    // — Tether (USDT)
+    source_aban: CH.AbanTetherPrice.URL,
+    usdt_aban: aban.pick || null,
+    aban_found_today: aban.foundToday,
+
+    source_tetherland: CH.TetherLand.URL,
+    usdt_tetherland: tland.pick || null,
+    tetherland_found_today: tland.foundToday,
   };
 
   ensureDir(OUTDIR);
@@ -341,21 +552,34 @@ async function main() {
 
   if (process.env.GITHUB_OUTPUT) {
     const lines = [];
+
+    // Herat
     lines.push(`herat_found_today=${payload.herat_found_today}`);
-    if (payload.usd_herat_cash?.value) {
-      lines.push(`herat_usd=${payload.usd_herat_cash.value}`);
-      if (payload.usd_herat_cash.id) lines.push(`herat_msg=${payload.usd_herat_cash.id}`);
-    }
+    lines.push(`herat_future_only=${payload.herat_future_only}`);
+    if (payload.usd_herat_cash?.value) { lines.push(`herat_usd=${payload.usd_herat_cash.value}`); lines.push(`herat_msg=${payload.usd_herat_cash.id||""}`); }
+    if (payload.herat_last_cash?.value) { lines.push(`herat_last_cash=${payload.herat_last_cash.value}`); lines.push(`herat_last_msg=${payload.herat_last_cash.id||""}`); }
+
+    // Tehran
+    lines.push(`tehran_found_today=${payload.tehran_found_today}`);
+    if (payload.usd_tehran_cash?.value) { lines.push(`tehran_usd=${payload.usd_tehran_cash.value}`); lines.push(`tehran_msg=${payload.usd_tehran_cash.id||""}`); }
+
+    // Sulaymaniyah
     lines.push(`usd_found_today=${payload.usd_found_today}`);
-    if (payload.usd_floor_mashhad?.value) {
-      lines.push(`usd=${payload.usd_floor_mashhad.value}`);
-      if (payload.usd_floor_mashhad.id) lines.push(`usd_msg=${payload.usd_floor_mashhad.id}`);
-    }
+    if (payload.usd_floor_mashhad?.value) { lines.push(`usd=${payload.usd_floor_mashhad.value}`); lines.push(`usd_msg=${payload.usd_floor_mashhad.id||""}`); }
     lines.push(`eur_found_today=${payload.eur_found_today}`);
-    if (payload.eur_floor_mashhad?.value) {
-      lines.push(`eur=${payload.eur_floor_mashhad.value}`);
-      if (payload.eur_floor_mashhad.id) lines.push(`eur_msg=${payload.eur_floor_mashhad.id}`);
-    }
+    if (payload.eur_floor_mashhad?.value) { lines.push(`eur=${payload.eur_floor_mashhad.value}`); lines.push(`eur_msg=${payload.eur_floor_mashhad.id||""}`); }
+
+    // USDT
+    lines.push(`aban_found_today=${payload.aban_found_today}`);
+    if (payload.usdt_aban?.mid)  lines.push(`aban_mid=${payload.usdt_aban.mid}`);
+    if (payload.usdt_aban?.sell) lines.push(`aban_sell=${payload.usdt_aban.sell}`);
+    if (payload.usdt_aban?.buy)  lines.push(`aban_buy=${payload.usdt_aban.buy}`);
+
+    lines.push(`tetherland_found_today=${payload.tetherland_found_today}`);
+    if (payload.usdt_tetherland?.mid)  lines.push(`tetherland_mid=${payload.usdt_tetherland.mid}`);
+    if (payload.usdt_tetherland?.sell) lines.push(`tetherland_sell=${payload.usdt_tetherland.sell}`);
+    if (payload.usdt_tetherland?.buy)  lines.push(`tetherland_buy=${payload.usdt_tetherland.buy}`);
+
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
   }
 }
