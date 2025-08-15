@@ -1,7 +1,10 @@
 name: "F1 Rate: test"
 
 on:
-  workflow_dispatch: {}   # فقط دستی، طبق قاعده‌ای که گفتی
+  workflow_dispatch: {}
+  # برای زمان‌بندی خودکار، این را باز کن (ساعت استانبول: +03:00)
+  # schedule:
+  #   - cron: "*/30 * * * *"  # هر 30 دقیقه
 
 permissions:
   contents: write
@@ -12,39 +15,35 @@ jobs:
     env:
       TZ: Europe/Istanbul
     steps:
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: true
 
-      - name: "Use Node.js 20"
+      - name: Use Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: "Debug tree (optional)"
-        run: |
-          pwd
-          ls -la
-          find . -maxdepth 3 -type f | sort || true
+      - name: Run scraper
+        run: node rate/scripts/f1-rate.mjs
 
-      # دقیقا مثل کار قبلی: از ریشه اجرا کن، نه rate/scripts
-      - name: "Run f1 scraper"
-        run: node scripts/f1-rate.mjs
-
-      - name: "Show result"
+      - name: Show result
         run: |
           echo "Result file:"
-          cat rate/data/f1-exit.json || (echo "MISSING rate/data/f1-exit.json" && exit 1)
+          cat rate/data/f1-rate.json || true
 
-      - name: "Commit & push if changed"
+      - name: Commit & push if changed
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git add rate/data/f1-exit.json
-            git commit -m "chore(f1): update Sulaymaniyah کف مشهد"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          # فقط فایل خروجی را بررسی و در صورت تغییر، کامیت کن
+          if [[ -n "$(git status --porcelain rate/data/f1-rate.json)" ]]; then
+            git add rate/data/f1-rate.json
+            git commit -m "chore: update F1 floor rates (Mashhad) [USD/EUR]"
             git push
           else
             echo "No changes to commit."
