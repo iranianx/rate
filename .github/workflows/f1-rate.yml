@@ -26,12 +26,12 @@ jobs:
           node-version: 20
 
       - name: Run scraper
-        run: node rate/scripts/f1-rate.mjs
+        run: node scripts/f1-rate.mjs
 
       - name: Show result
         run: |
           echo "Result file:"
-          cat rate/data/f1-rate.json || true
+          cat data/f1-rate.json || true
 
       - name: Commit & push if changed
         run: |
@@ -41,8 +41,8 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
           # فقط فایل خروجی را بررسی و در صورت تغییر، کامیت کن
-          if [[ -n "$(git status --porcelain rate/data/f1-rate.json)" ]]; then
-            git add rate/data/f1-rate.json
+          if [[ -n "$(git status --porcelain data/f1-rate.json)" ]]; then
+            git add data/f1-rate.json
             git commit -m "chore: update F1 floor rates (Mashhad) [USD/EUR]"
             git push
           else
