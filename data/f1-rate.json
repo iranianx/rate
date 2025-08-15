@@ -2,15 +2,15 @@
   "status": "ok",
   "source": "https://t.me/s/dollar_sulaymaniyah",
   "needle": "کف مشهد",
-  "scraped_at": "2025-08-15T11:53:22.657Z",
+  "scraped_at": "2025-08-15T12:00:09.748Z",
   "usd_floor_mashhad": {
     "value": 91600,
     "unit": "تومان",
     "raw_line": "کف مشهد 91600",
-    "link": "https://t.me/dollar_sulaymaniyah/1231846",
     "id": 1231846,
+    "link": "https://t.me/dollar_sulaymaniyah/1231846",
     "time_iso": "2025-08-15T11:10:18.000Z",
-    "age_hours": 0.7177775
+    "age_hours": 0.8307822222222222
   },
   "eur_floor_mashhad": null,
   "usd_found_today": true,
