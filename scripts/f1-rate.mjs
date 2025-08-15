@@ -287,14 +287,17 @@ function extractTether(fullText) {
 
 
 // =======================================
-// SECTION 5 — Scanners (+ Double-Check)
+// SECTION 5 — Scanners (+ Improved Double-Check)
 // =======================================
 
-// فیلتر «امروز» برای یک بلاک
 function isBlockToday(meta, todayKey) {
   if (!meta?.datetimeISO) return { ok: false, timeISO: null };
   const dt = new Date(meta.datetimeISO);
   return { ok: dateKeyInTZ(dt) === todayKey, timeISO: dt.toISOString() };
+}
+
+function minutesBetween(a, b) {
+  return Math.abs((a.getTime() - b.getTime()) / 60000);
 }
 
 // — Generic: اسکن نقدی «امروز» با parser سفارشی (Herat / Tehran)
@@ -344,33 +347,40 @@ async function scanCashTodayGeneric(chan, parseFn) {
   let pick = null;
   if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
 
-  // --- Double-check صفحهٔ اول با آستانهٔ 10 دقیقه
-  const blocksFresh = await fetchPage(chan.URL, null);
-  let topNew = null;
-  for (const block of blocksFresh) {
+  // --- Double-check صفحهٔ اول با آستانهٔ 10 دقیقه (بدون break روی id<=maxId، تا 30 پست)
+  const freshBlocks = await fetchPage(chan.URL, null);
+  const candidates = [];
+  let scanned = 0;
+
+  for (const block of freshBlocks) {
+    scanned++; if (scanned > 30) break;
+
     const meta = extractMessageMeta(block);
-    if (!meta?.id || (maxId && meta.id <= maxId)) break; // فقط جدیدتر از maxId
+    if (!meta?.id) continue;                // به‌جای break، ادامه بده (پست پین‌شده ممکن است قدیمی باشد)
+    if (maxId && meta.id <= maxId) continue;
+
     const text = extractMessageText(block);
     if (!text) continue;
+
     if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
     const { ok, timeISO } = isBlockToday(meta, todayKey);
     if (!ok) continue;
 
-    const cand = parseFn(text);
-    if (cand) {
+    const val = parseFn(text);
+    if (val) {
       const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      topNew = { ...cand, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age };
-      break; // بالاترین ID همین اولینِ صفحه است
+      candidates.push({ ...val, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
     }
   }
-  if (topNew) {
-    if (!pick) { pick = topNew; }
+
+  if (candidates.length) {
+    candidates.sort((a, b) => b.id - a.id);
+    const newest = candidates[0];
+    if (!pick) pick = newest;
     else {
-      const tOld = new Date(pick.time_iso || now);
-      const tNew = new Date(topNew.time_iso || now);
-      const gapMin = minutesBetween(tNew, tOld);
-      if (gapMin >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = topNew; // فقط اگر ≥ 10 دقیقه جدیدتر بود
+      const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
+      if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
     }
   }
 
@@ -455,13 +465,17 @@ async function scanSuliToday() {
   let usdPick = pickLatest(usdToday);
   let eurPick = pickLatest(eurToday);
 
-  // — Double-check صفحهٔ اول با آستانهٔ 10 دقیقه (برای هر ارز جداگانه)
+  // — Double-check صفحهٔ اول با آستانهٔ 10 دقیقه (تا 30 پست، بدون break روی id<=maxId)
   const freshBlocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, null);
-  let topUSD = null, topEUR = null;
+  const candUSD = [], candEUR = [];
+  let scanned = 0;
 
   for (const block of freshBlocks) {
+    scanned++; if (scanned > 30) break;
+
     const meta = extractMessageMeta(block);
-    if (!meta?.id || (maxId && meta.id <= maxId)) break;
+    if (!meta?.id) continue;
+    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -476,21 +490,21 @@ async function scanSuliToday() {
     const { usd, eur } = extractCurrenciesFromSuli(text);
     const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
 
-    if (usd && !topUSD) topUSD = { ...usd, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age };
-    if (eur && !topEUR) topEUR = { ...eur, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age };
-
-    if (topUSD && topEUR) break;
+    if (usd) candUSD.push({ ...usd, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
+    if (eur) candEUR.push({ ...eur, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
   }
 
-  const maybeUpdateByGap = (oldPick, newPick) => {
-    if (!newPick) return oldPick;
-    if (!oldPick) return newPick;
-    const gap = minutesBetween(new Date(newPick.time_iso || now), new Date(oldPick.time_iso || now));
-    return gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK ? newPick : oldPick;
+  const maybeUpdateByGap = (oldPick, cands) => {
+    if (!cands.length) return oldPick;
+    cands.sort((a, b) => b.id - a.id);
+    const newest = cands[0];
+    if (!oldPick) return newest;
+    const gap = minutesBetween(new Date(newest.time_iso || now), new Date(oldPick.time_iso || now));
+    return gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK ? newest : oldPick;
   };
 
-  usdPick = maybeUpdateByGap(usdPick, topUSD);
-  eurPick = maybeUpdateByGap(eurPick, topEUR);
+  usdPick = maybeUpdateByGap(usdPick, candUSD);
+  eurPick = maybeUpdateByGap(eurPick, candEUR);
 
   return {
     usdPick, eurPick,
@@ -583,12 +597,17 @@ async function scanTetherToday(chan) {
   let pick = null;
   if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
 
-  // Double-check صفحهٔ اول با آستانهٔ 10 دقیقه
+  // Double-check صفحهٔ اول با آستانهٔ 10 دقیقه (تا 30 پست، بدون break روی id<=maxId)
   const freshBlocks = await fetchPage(chan.URL, null);
-  let topNew = null;
+  const candidates = [];
+  let scanned = 0;
+
   for (const block of freshBlocks) {
+    scanned++; if (scanned > 30) break;
+
     const meta = extractMessageMeta(block);
-    if (!meta?.id || (maxId && meta.id <= maxId)) break;
+    if (!meta?.id) continue;
+    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -601,15 +620,17 @@ async function scanTetherToday(chan) {
     const val = extractTether(text);
     if (val) {
       const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      topNew = { ...val, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age };
-      break;
+      candidates.push({ ...val, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
     }
   }
-  if (topNew) {
-    if (!pick) pick = topNew;
+
+  if (candidates.length) {
+    candidates.sort((a, b) => b.id - a.id);
+    const newest = candidates[0];
+    if (!pick) pick = newest;
     else {
-      const gap = minutesBetween(new Date(topNew.time_iso || now), new Date(pick.time_iso || now));
-      if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = topNew;
+      const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
+      if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
     }
   }
 
@@ -655,7 +676,6 @@ async function scanTehranTodayAndLast() {
   const resLast  = await scanCashLast(CH.Dollar_Tehran3bze, resToday.nextBefore);
   return { pick: resToday.pick, foundToday: resToday.foundToday, last: resLast.last };
 }
-
 
 // ===================================
 // SECTION 6 — Bon-Bast (Homepage)
