@@ -577,13 +577,24 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5.5 — Tether (Today + Double-Check + Last) & Tehran wrapper
+// SECTION 5/5 — Tether Today (Double-Check + Cache-Buster)
 // =======================================
+
+const TETHER_DOUBLECHECK_SCAN_LIMIT = 200; // عمق دابل‌چک برای کانال‌های پرپست (مثل آبان)
 
 async function scanTetherToday(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
+  // مقایسهٔ «جدیدتر» بر مبنای time_iso، و در تساوی بر مبنای id
+  const cmpByTimeThenIdDesc = (a, b) => {
+    const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
+    const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return (b?.id || 0) - (a?.id || 0);
+  };
+
+  // مرحلهٔ اصلی: پیمایش today با before
   let before = null, pages = 0;
   const picks = [];
 
@@ -619,20 +630,34 @@ async function scanTetherToday(chan) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // پیک امروز (بر اساس زمان، نه صرفاً id)
+  // «پیک امروز» بر مبنای زمان
   let pick = null;
   if (picks.length) {
-    picks.sort(compareByTimeThenIdDesc);
+    picks.sort(cmpByTimeThenIdDesc);
     pick = picks[0];
   }
 
-  // Double-check: صفحهٔ اول تا 30 پست — «همهٔ امروزها» را جمع کن و جدیدترین را بگذار (بدون شرط id>maxId)
-  const freshBlocks = await fetchPage(chan.URL, null);
+  // دابل‌چک: صفحهٔ اول با cache-buster و عمق زیاد
+  async function fetchFirstPageFresh(url) {
+    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
+    const freshUrl = url.includes("?") ? `${url}&__ts=${ts}` : `${url}?__ts=${ts}`;
+    const res = await fetch(freshUrl, {
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        accept: "text/html,application/xhtml+xml",
+      },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${freshUrl}`);
+    const html = await res.text();
+    return extractBlocks(html);
+  }
+
+  const freshBlocks = await fetchFirstPageFresh(chan.URL);
   const candidates = [];
   let scanned = 0;
 
   for (const block of freshBlocks) {
-    scanned++; if (scanned > 30) break;
+    scanned++; if (scanned > TETHER_DOUBLECHECK_SCAN_LIMIT) break;
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
@@ -652,14 +677,16 @@ async function scanTetherToday(chan) {
   }
 
   if (candidates.length) {
-    candidates.sort(compareByTimeThenIdDesc);
-    const newest = candidates[0];
-    // همیشه جدیدترینِ امروز را جایگزین کن (بدون آستانهٔ ۱۰ دقیقه)
-    pick = newest;
+    candidates.sort(cmpByTimeThenIdDesc);
+    // همیشه «جدیدترینِ امروز» را جایگزین کن
+    pick = candidates[0];
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
 }
+// =======================================
+// SECTION 5/6 — Tether Last & Tehran wrapper
+// =======================================
 
 async function scanTetherLast(chan, startBefore) {
   let before = startBefore || null, pages = 0;
@@ -692,7 +719,7 @@ async function scanTetherLast(chan, startBefore) {
   return { last: null };
 }
 
-// Tehran3bze: today + last با parser اختصاصی (buy/sell/mid) — بدون تغییر
+// Tehran3bze: today + last با parser اختصاصی (buy/sell/mid)
 async function scanTehranTodayAndLast() {
   const resToday = await scanCashTodayGeneric(CH.Dollar_Tehran3bze, extractTehranCash);
   const resLast  = await scanCashLast(CH.Dollar_Tehran3bze, resToday.nextBefore);
