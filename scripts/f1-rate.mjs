@@ -7,7 +7,7 @@ const NEEDLE = "کف مشهد";
 const OUTDIR = "data";
 const OUTFILE = path.join(OUTDIR, "f1-rate.json");
 const TZ = "Europe/Istanbul";
-const MAX_PAGES = 12;
+const MAX_PAGES = 16; // کمی بیشتر برای اطمینان
 
 function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
 
@@ -24,13 +24,13 @@ function htmlToText(html) {
     .trim();
 }
 
-// نرمال‌سازی فارسی
+// نرمال‌سازی فارسی/عربی
 function normalizeFa(s) {
   if (!s) return s;
   return s
     .replace(/\u200c/g, " ")
     .replace(/\u0640/g, "")
-    .replace(/[\u064B-\u0652]/g, " ")
+    .replace(/[\u064B-\u0652]/g, " ") // اعراب → فاصله تا چسبندگی از بین برود
     .replace(/ي/g, "ی")
     .replace(/ك/g, "ک")
     .replace(/\s+/g, " ")
@@ -67,26 +67,31 @@ function extractBlocks(html) {
 }
 
 function extractMessageMeta(block) {
-  const a = block.match(
-    /<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/
-  );
-  let link = null, dateText = null, id = null, datetimeISO = null;
+  // id از data-post (مطمئن‌تر)
+  let id = null;
+  const dp = block.match(/data-post="[^"]+\/(\d+)"/);
+  if (dp) id = Number(dp[1]);
+
+  // لینک و تاریخ
+  let link = null, dateText = null, datetimeISO = null;
+  const a = block.match(/<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
   if (a) {
     link = a[1].startsWith("http") ? a[1] : `https://t.me${a[1]}`;
     const title = a[0].match(/title="([^"]+)"/);
     dateText = title ? title[1] : htmlToText(a[2] || "");
-    const idm = link.match(/\/(\d+)(?:\?.*)?$/);
-    if (idm) id = Number(idm[1]);
+    if (!id) {
+      const idm = link.match(/\/(\d+)(?:\?.*)?$/);
+      if (idm) id = Number(idm[1]);
+    }
   }
   const t = block.match(/<time[^>]*datetime="([^"]+)"/);
   if (t) datetimeISO = t[1];
+
   return { link, dateText, id, datetimeISO };
 }
 
 function extractMessageText(block) {
-  const m = block.match(
-    /<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/
-  );
+  const m = block.match(/<div[^>]*class="[^"]*tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/);
   return m ? htmlToText(m[1]) : null;
 }
 
@@ -96,7 +101,7 @@ function dateKeyInTZ(d, tz = TZ) {
 }
 function hoursBetween(a, b) { return Math.abs((a.getTime() - b.getTime()) / 36e5); }
 
-// تشخیص یورو/دلار و استخراج اعداد
+// تشخیص یورو/دلار و استخراج
 function extractCurrenciesFromText(fullText) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
@@ -106,6 +111,7 @@ function extractCurrenciesFromText(fullText) {
 
   let usd = null, eur = null;
 
+  // خطی که «کف مشهد» دارد
   const floorLine = lines.find(l => l.includes("کف مشهد"));
   if (floorLine) {
     const nums = pickIntegersAll(floorLine);
@@ -117,6 +123,8 @@ function extractCurrenciesFromText(fullText) {
       usd = { value: nums[0], unit: "تومان", raw_line: floorLine };
     }
   }
+
+  // در صورت نبود یورو در همان خط، سایر خطوط یورو
   if (!eur) {
     for (const line of lines) {
       if (isEUR(line)) {
@@ -130,6 +138,8 @@ function extractCurrenciesFromText(fullText) {
       }
     }
   }
+
+  // در صورت نبود دلار در همان خط، سایر خطوط دلار
   if (!usd) {
     for (const line of lines) {
       if (isUSD(line)) {
@@ -138,6 +148,7 @@ function extractCurrenciesFromText(fullText) {
       }
     }
   }
+
   return { usd, eur };
 }
 
@@ -161,9 +172,9 @@ async function main() {
   let before = null;
   let pages = 0;
 
-  // همیشه «آخرینِ امروز» را انتخاب می‌کنیم، یعنی بالاترین ID در همان روز
-  let usdPick = null; // {value, unit, raw_line, link, id, time_iso, age_hours}
-  let eurPick = null;
+  // لیست کاندیداها برای امروز
+  const usdToday = []; // {id, value, link, time_iso, age_hours, raw_line}
+  const eurToday = [];
 
   while (pages < MAX_PAGES) {
     const blocks = await fetchPage(before);
@@ -172,7 +183,6 @@ async function main() {
     let pageMinId = Infinity;
     let sawAnyTodayOnThisPage = false;
 
-    // همهٔ بلاک‌ها را پیمایش کن، هرجا «امروز» بود، کاندیداها را به‌روزرسانی کن
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
       if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
@@ -183,12 +193,15 @@ async function main() {
       const textNorm = normalizeFa(text);
       if (!textNorm.includes(normalizeFa(NEEDLE))) continue;
 
+      // فقط «امروز» به وقت استانبول
       let isToday = false;
       let timeISO = null;
       if (meta.datetimeISO) {
         const dt = new Date(meta.datetimeISO);
-        isToday = dateKeyInTZ(dt) === todayKey;
-        timeISO = dt.toISOString();
+        if (dateKeyInTZ(dt) === todayKey) {
+          isToday = true;
+          timeISO = dt.toISOString();
+        }
       }
       if (!isToday) continue;
 
@@ -197,24 +210,31 @@ async function main() {
       const { usd, eur } = extractCurrenciesFromText(text);
       const age = timeISO ? hoursBetween(now, new Date(timeISO)) : null;
 
-      // فقط اگر این پیام «جدیدتر» از قبلی است، جایگزین کن
-      if (usd && (!usdPick || (meta.id ?? 0) > (usdPick.id ?? 0))) {
-        usdPick = { ...usd, link: meta.link || null, id: meta.id || null, time_iso: timeISO, age_hours: age };
-      }
-      if (eur && (!eurPick || (meta.id ?? 0) > (eurPick.id ?? 0))) {
-        eurPick = { ...eur, link: meta.link || null, id: meta.id || null, time_iso: timeISO, age_hours: age };
-      }
+      if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
     }
 
-    // آمادهٔ صفحهٔ بعد، تا وقتی هنوز «امروز» را می‌بینیم پایین برو
     pages += 1;
-    if (Number.isFinite(pageMinId)) before = pageMinId;
-    // اگر این صفحه هیچ پیامِ «امروز» نداشت، یعنی از امروز عبور کرده‌ایم، توقف
+
+    // اگر در این صفحه پیام امروز نبود، یعنی از امروز عبور کردیم
     if (!sawAnyTodayOnThisPage) break;
-    if (!before) break;
-    // اگر هر دو مقدار امروز را گرفته‌ایم، می‌توانیم بایستیم
-    if (usdPick && eurPick) break;
+
+    // آمادهٔ صفحهٔ بعد
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
+
+    // اگر هر دو ارز را امروز داریم و می‌خواهیم فقط آخرین را بگیریم، می‌توانیم ادامه ندهیم
+    // اما چون ممکن است پیام جدیدتری در همین روز در صفحات پایین‌تر باشد، ادامه می‌دهیم
   }
+
+  // انتخاب «آخرینِ امروز» بر اساس بزرگ‌ترین ID
+  const pickLatest = (arr) => {
+    if (!arr.length) return null;
+    arr.sort((a, b) => b.id - a.id);
+    return arr[0];
+  };
+
+  const usdPick = pickLatest(usdToday);
+  const eurPick = pickLatest(eurToday);
 
   const payload = {
     status: "ok",
@@ -235,14 +255,8 @@ async function main() {
     const lines = [];
     lines.push(`usd_found_today=${payload.usd_found_today}`);
     lines.push(`eur_found_today=${payload.eur_found_today}`);
-    if (payload.usd_floor_mashhad?.value) {
-      lines.push(`usd=${payload.usd_floor_mashhad.value}`);
-      if (payload.usd_floor_mashhad.id) lines.push(`usd_msg=${payload.usd_floor_mashhad.id}`);
-    }
-    if (payload.eur_floor_mashhad?.value) {
-      lines.push(`eur=${payload.eur_floor_mashhad.value}`);
-      if (payload.eur_floor_mashhad.id) lines.push(`eur_msg=${payload.eur_floor_mashhad.id}`);
-    }
+    if (usdPick?.value) { lines.push(`usd=${usdPick.value}`); lines.push(`usd_msg=${usdPick.id}`); }
+    if (eurPick?.value) { lines.push(`eur=${eurPick.value}`); lines.push(`eur_msg=${eurPick.id}`); }
     fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n");
   }
 }
