@@ -577,10 +577,12 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5/5 — Tether Today (Double-Check + Cache-Buster)
+// SECTION 5/5 — Tether Today (Double-Check + Cache-Buster + Forward Probe)
 // =======================================
 
-const TETHER_DOUBLECHECK_SCAN_LIMIT = 200; // عمق دابل‌چک برای کانال‌های پرپست (مثل آبان)
+const TETHER_DOUBLECHECK_SCAN_LIMIT = 200;   // عمق دابل‌چک برای کانال‌های پرپست
+const TETHER_FORWARD_PROBE_LIMIT    = 500;   // حداکثر تعداد ID برای پویش رو به جلو
+const TETHER_FORWARD_PROBE_ONLY_ABAN = true; // پویش رو به جلو فقط برای AbanTetherPrice
 
 async function scanTetherToday(chan) {
   const now = new Date();
@@ -594,9 +596,10 @@ async function scanTetherToday(chan) {
     return (b?.id || 0) - (a?.id || 0);
   };
 
-  // مرحلهٔ اصلی: پیمایش today با before
+  // — مرحلهٔ اصلی: پیمایش today با before (مثل قبل)
   let before = null, pages = 0;
   const picks = [];
+  let maxSeenId = 0;
 
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
@@ -606,7 +609,10 @@ async function scanTetherToday(chan) {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+      if (meta?.id) {
+        pageMinId = Math.min(pageMinId, meta.id);
+        if (meta.id > maxSeenId) maxSeenId = meta.id;
+      }
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -637,7 +643,7 @@ async function scanTetherToday(chan) {
     pick = picks[0];
   }
 
-  // دابل‌چک: صفحهٔ اول با cache-buster و عمق زیاد
+  // — دابل‌چک: صفحهٔ اول با cache-buster و عمق زیاد
   async function fetchFirstPageFresh(url) {
     const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
     const freshUrl = url.includes("?") ? `${url}&__ts=${ts}` : `${url}?__ts=${ts}`;
@@ -660,6 +666,8 @@ async function scanTetherToday(chan) {
     scanned++; if (scanned > TETHER_DOUBLECHECK_SCAN_LIMIT) break;
 
     const meta = extractMessageMeta(block);
+    if (meta?.id && meta.id > maxSeenId) maxSeenId = meta.id;
+
     if (!meta?.id) continue;
 
     const text = extractMessageText(block);
@@ -678,12 +686,86 @@ async function scanTetherToday(chan) {
 
   if (candidates.length) {
     candidates.sort(cmpByTimeThenIdDesc);
-    // همیشه «جدیدترینِ امروز» را جایگزین کن
-    pick = candidates[0];
+    pick = candidates[0]; // بدون آستانهٔ زمانی، همیشه جدیدترینِ امروز را جایگزین کن
+  }
+
+  // — پویش رو به جلو (Forward Probe) برای کانال‌های پرتکرار (فقط Aban)
+  const isAban = /\/AbanTetherPrice$/i.test(chan.URL) || /\/AbanTetherPrice\?/.test(chan.URL);
+  if (!TETHER_FORWARD_PROBE_ONLY_ABAN || isAban) {
+    // اگر maxSeenId داریم، از id بعدی رو به جلو تا ۵۰۰ پیام را امتحان می‌کنیم
+    if (maxSeenId > 0) {
+      const fwdCandidates = [];
+      const upperBound = maxSeenId + TETHER_FORWARD_PROBE_LIMIT;
+
+      for (let probeId = maxSeenId + 1; probeId <= upperBound; probeId++) {
+        const msg = await fetchMessageEmbed(chan, probeId);
+        if (!msg) continue; // 404 یا محتوای بی‌ربط
+
+        // پیام را مثل بقیهٔ مسیرها بررسی کن
+        if (!hasAny(msg.text, chan.INCLUDE) || hasAny(msg.text, chan.EXCLUDE)) continue;
+
+        const { ok, timeISO } = isBlockToday(msg.meta, todayKey);
+        if (!ok) continue;
+
+        const val = extractTether(msg.text);
+        if (!val) continue;
+
+        const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+        fwdCandidates.push({
+          ...val,
+          id: msg.meta.id ?? probeId,
+          link: msg.meta.link || `${chan.URL.replace('/s/', '/')}/${probeId}`,
+          time_iso: timeISO,
+          age_hours: age,
+        });
+      }
+
+      if (fwdCandidates.length) {
+        fwdCandidates.sort(cmpByTimeThenIdDesc);
+        pick = fwdCandidates[0]; // آخرینِ امروز از مسیر مستقیمِ پیام‌ها
+      }
+    }
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
 }
+
+// واکشی پیام تکی به‌صورت embed (برای پویش رو به جلو)
+async function fetchMessageEmbed(chan, id) {
+  try {
+    const base = chan.URL.replace("/s/", "/"); // از نمای «/s/» به نمای معمولی برو
+    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
+    const url = `${base.replace(/\/$/, "")}/${id}?embed=1&__ts=${ts}`;
+    const res = await fetch(url, {
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+        accept: "text/html,application/xhtml+xml",
+      },
+    });
+    if (!res.ok) return null; // 404 یا خطا
+    const html = await res.text();
+    const blocks = extractBlocks(html);
+    if (!blocks.length) return null;
+
+    // معمولاً یک بلاک است
+    const block = blocks[0];
+    const text = extractMessageText(block);
+    const meta = extractMessageMeta(block);
+
+    // sanity: اگر کانال اشتباه بود یا متن نداشت
+    if (!text || !meta?.id) return null;
+
+    // لینک مطمئن
+    if (!meta.link) {
+      meta.link = `${base.replace(/\/$/, "")}/${meta.id}`;
+    }
+
+    return { text, meta };
+  } catch {
+    return null;
+  }
+}
+
 // =======================================
 // SECTION 5/6 — Tether Last & Tehran wrapper
 // =======================================
