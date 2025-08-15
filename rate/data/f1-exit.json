@@ -1,16 +1,16 @@
 {
   "status": "ok",
   "found": true,
-  "text": "کف مشهد یورو 105300_104900",
-  "link": "https://t.me/dollar_sulaymaniyah/1231818",
-  "date_text": "12:57",
-  "scraped_at": "2025-08-15T08:41:35.183Z",
+  "text": "کف مشهد 91900",
+  "link": "https://t.me/dollar_sulaymaniyah/1231819",
+  "date_text": "13:10",
+  "scraped_at": "2025-08-15T08:57:26.682Z",
   "source": "https://t.me/s/dollar_sulaymaniyah",
   "needle": "کف مشهد",
   "usd_raw": null,
   "usd_high": null,
   "usd_low": null,
-  "eur_raw": "105300_104900",
-  "eur_high": 105300,
-  "eur_low": 104900
+  "eur_raw": null,
+  "eur_high": null,
+  "eur_low": null
 }
