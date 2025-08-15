@@ -571,17 +571,103 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5/5 — Tether Today (unified: pick newest "today", no lag, no special-case)
+// SECTION 5/5 — Tether Today
+//  - AbanTetherPrice: pick newest "today" with age ≥ 10 minutes
+//  - Others (e.g., TetherLand): pick newest "today" with no lag
 // =======================================
 
+const ABAN_LAG_MINUTES = 10;             // ← 10 دقیقه
+const ABAN_LAG_HOURS   = ABAN_LAG_MINUTES / 60;
+const ABAN_MAX_PAGES_FOR_LAG = 12;       // تا ~240 پست از /s/؛ برای 10 دقیقه کافی است
+
+// اسکن امروز برای آبان: «جدیدترین پستِ امروز» که حداقل ۱۰ دقیقه از انتشارش گذشته باشد
 async function scanTetherToday(chan) {
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
+
+  const isAban = /\/AbanTetherPrice(?:\/|$|\?)/i.test(chan.URL);
+  if (!isAban) {
+    // برای کانال‌های غیر آبان، همان منطق ساده (بدون lag)
+    return await scanTetherToday_Fallback(chan);
+  }
+
+  let before = null;
+  let pages = 0;
+
+  const candidates = []; // فقط پست‌های «امروز» که الگوی تتر دارند
+
+  while (pages < ABAN_MAX_PAGES_FOR_LAG) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+
+    let pageMinId = Infinity;
+    let sawAny = false;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta?.id) pageMinId = Math.min(pageMinId, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      // فقط پست‌های دارای الگوی تتر و بدون کلمات استثنا
+      if (!hasAny(text, CH.AbanTetherPrice.INCLUDE) || hasAny(text, CH.AbanTetherPrice.EXCLUDE)) continue;
+
+      // فقط «امروز»
+      const { ok, timeISO } = isBlockToday(meta, todayKey);
+      if (!ok) continue;
+
+      const val = extractTether(text);
+      if (!val) continue;
+
+      sawAny = true;
+
+      const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+      candidates.push({
+        ...val,
+        id: meta.id ?? 0,
+        link: meta.link || null,
+        time_iso: timeISO || null,
+        age_hours: age,
+      });
+    }
+
+    pages += 1;
+    if (!sawAny) break;                 // اگر در این صفحه اصلاً پست «امروز» نبود، ادامه نده
+    if (Number.isFinite(pageMinId)) {
+      before = pageMinId;               // برو قدیمی‌ترها
+    } else {
+      break;
+    }
+  }
+
+  // فیلتر: فقط مواردی که ≥۱۰ دقیقه سن دارند
+  const aged = candidates.filter(c => typeof c.age_hours === "number" && c.age_hours >= ABAN_LAG_HOURS);
+
+  // انتخاب: «نزدیک‌ترین به ۱۰ دقیقه» (کمترین age_hours بین موارد ≥۱۰ دقیقه)، و در تساوی ID بزرگ‌تر
+  let pick = null;
+  if (aged.length) {
+    aged.sort((a, b) => (a.age_hours - b.age_hours) || (b.id - a.id));
+    pick = aged[0];
+  } else {
+    // اگر هنوز کمتر از ۱۰ دقیقه از آخرین پست‌های امروز گذشته یا چیزی نیامده: خروجی امروز آبان خالی بماند
+    pick = null;
+  }
+
+  return { pick, foundToday: Boolean(pick), nextBefore: before };
+}
+
+/**
+ * Fallback برای کانال‌های غیر آبان: اسکن سادهٔ امروز (بدون lag)
+ * - «جدیدترین پست امروز» با الگوی تتر را انتخاب می‌کند.
+ */
+async function scanTetherToday_Fallback(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
   let before = null, pages = 0;
   const picks = [];
 
-  // مرحلهٔ اصلی: پیمایش امروز با before
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
     if (!blocks.length) break;
@@ -596,80 +682,40 @@ async function scanTetherToday(chan) {
       const text = extractMessageText(block);
       if (!text) continue;
 
-      // فقط پیام‌هایی که الگوی تتر دارند و کلمات استثنا ندارند
       if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
-      // فقط «امروز»
       const { ok, timeISO } = isBlockToday(meta, todayKey);
       if (!ok) continue;
 
       sawAnyToday = true;
 
-      // استخراج نرخ تتر (buy/sell/mid یا «نرخ تتر: …»)
       const val = extractTether(text);
-      if (!val) continue;
-
-      const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      picks.push({
-        ...val,
-        id: meta.id ?? 0,
-        link: meta.link || null,
-        time_iso: timeISO || null,
-        age_hours: age,
-      });
+      if (val) {
+        const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      }
     }
 
     pages += 1;
-    if (!sawAnyToday) break;                         // اگر این صفحه هیچ «امروز»ی نداشت، ادامه نده
+    if (!sawAnyToday) break;
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // آخرین پیکِ امروز بر اساس ID (بزرگ‌تر = جدیدتر)
   let pick = null;
   if (picks.length) {
-    picks.sort((a, b) => b.id - a.id);
-    pick = picks[0];
-  }
-
-  // دابل‌چک سبک: صفحهٔ اول تا سقف ۳۰ پست (بدون آستانه‌ی فاصلهٔ زمانی — همیشه تازه‌ترین را جایگزین می‌کنیم)
-  const freshBlocks = await fetchPage(chan.URL, null);
-  const candidates = [];
-  let scanned = 0;
-
-  for (const block of freshBlocks) {
-    scanned++; if (scanned > 30) break;
-
-    const meta = extractMessageMeta(block);
-    if (!meta?.id) continue;
-
-    const text = extractMessageText(block);
-    if (!text) continue;
-    if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
-
-    const { ok, timeISO } = isBlockToday(meta, todayKey);
-    if (!ok) continue;
-
-    const val = extractTether(text);
-    if (!val) continue;
-
-    const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-    candidates.push({
-      ...val,
-      id: meta.id,
-      link: meta.link || null,
-      time_iso: timeISO,
-      age_hours: age,
+    // «جدیدترینِ امروز» بر مبنای time_iso، و در تساوی بر اساس id
+    picks.sort((a, b) => {
+      const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
+      const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return (b?.id || 0) - (a?.id || 0);
     });
-  }
-
-  if (candidates.length) {
-    candidates.sort((a, b) => b.id - a.id);
-    // 🔁 بدون درنظرگرفتن MIN_GAP، همیشه تازه‌ترینِ امروز را جایگزین کن
-    pick = candidates[0];
+    pick = picks[0];
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
 }
+
 
 // =======================================
 // SECTION 5/6 — Tether Last & Tehran wrapper
