@@ -169,20 +169,23 @@ async function fetchPage(url, beforeId = null) {
   return extractBlocks(html);
 }
 
+// =======================================
+// SECTION 4.1 — SULI parser (کف مشهد) — with IQD filter
+// =======================================
 
-// =================================
-// SECTION 4 — Channel Parsers
-// =================================
-
-// — SULI (کف مشهد: USD/EUR)
 function extractCurrenciesFromSuli(fullText) {
   const norm = normalizeFa(fullText);
-  const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const linesAll = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
+
+  // ⛔️ فیلتر خطوط مربوط به دینار عراق (IQD) تا اشتباهاً به‌عنوان USD/EUR برداشت نشوند
+  const lines = linesAll.filter(l => !/(^|\s)(دینار|عراق|\bIQD\b|د\.ع)(\s|$)/i.test(l));
 
   const isEUR = (l) => /(\bEUR\b|€|یورو)/i.test(l);
   const isUSD = (l) => /(\bUSD\b|\$|دلار(?!\s*(استرالیا|کانادا))|دلار\s*امریکا|دلار\s*آمریکا)/i.test(l);
 
   let usd = null, eur = null;
+
+  // اولویت: خطی که «کف مشهد» دارد
   const floorLine = lines.find(l => l.includes("کف مشهد"));
   if (floorLine) {
     const nums = pickIntegersAll(floorLine);
@@ -194,6 +197,8 @@ function extractCurrenciesFromSuli(fullText) {
       usd = { value: nums[0], unit: "تومان", raw_line: floorLine };
     }
   }
+
+  // اگر یورو هنوز پیدا نشده، از کل خطوطی که «یورو/EUR/€» دارند میانگین بازه را بگیر
   if (!eur) {
     for (const line of lines) {
       if (isEUR(line)) {
@@ -207,14 +212,20 @@ function extractCurrenciesFromSuli(fullText) {
       }
     }
   }
+
+  // اگر دلار هنوز پیدا نشده، از خطوطی که نشانه‌های USD دارند اولین عدد را بگیر
   if (!usd) {
     for (const line of lines) {
       if (isUSD(line)) {
         const nums = pickIntegersAll(line);
-        if (nums.length) { usd = { value: nums[0], unit: "تومان", raw_line: line }; break; }
+        if (nums.length) {
+          usd = { value: nums[0], unit: "تومان", raw_line: line };
+          break;
+        }
       }
     }
   }
+
   return { usd, eur };
 }
 
@@ -295,6 +306,15 @@ function isBlockToday(meta, todayKey) {
   const dt = new Date(meta.datetimeISO);
   return { ok: dateKeyInTZ(dt) === todayKey, timeISO: dt.toISOString() };
 }
+
+// تازه‌تر بودن را بر اساس time_iso مقایسه می‌کنیم؛ اگر مساوی بود بر اساس id
+function compareByTimeThenIdDesc(a, b) {
+  const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
+  const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
+  if (tb !== ta) return tb - ta;            // بزرگ‌تر = جدیدتر
+  return (b?.id || 0) - (a?.id || 0);
+}
+
 // =======================================
 // SECTION 5.2 — Generic "Cash Today" with Double-Check (Herat / custom parsers)
 // =======================================
@@ -564,7 +584,7 @@ async function scanTetherToday(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  let before = null, pages = 0, maxId = 0;
+  let before = null, pages = 0;
   const picks = [];
 
   while (pages < MAX_PAGES_TODAY) {
@@ -575,14 +595,12 @@ async function scanTetherToday(chan) {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) { pageMinId = Math.min(pageMinId, meta.id); maxId = Math.max(maxId, meta.id); }
+      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
 
       const text = extractMessageText(block);
       if (!text) continue;
 
-      const inc = hasAny(text, chan.INCLUDE);
-      const exc = hasAny(text, chan.EXCLUDE);
-      if (!inc || exc) continue;
+      if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
       const { ok, timeISO } = isBlockToday(meta, todayKey);
       if (!ok) continue;
@@ -601,11 +619,14 @@ async function scanTetherToday(chan) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // پیک امروز
+  // پیک امروز (بر اساس زمان، نه صرفاً id)
   let pick = null;
-  if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
+  if (picks.length) {
+    picks.sort(compareByTimeThenIdDesc);
+    pick = picks[0];
+  }
 
-  // Double-check: صفحهٔ اول تا 30 پست — همیشه تازه‌ترین امروز را بگیر (بدون آستانه‌ی زمانی)
+  // Double-check: صفحهٔ اول تا 30 پست — «همهٔ امروزها» را جمع کن و جدیدترین را بگذار (بدون شرط id>maxId)
   const freshBlocks = await fetchPage(chan.URL, null);
   const candidates = [];
   let scanned = 0;
@@ -615,11 +636,9 @@ async function scanTetherToday(chan) {
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
-    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
-
     if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
     const { ok, timeISO } = isBlockToday(meta, todayKey);
@@ -633,9 +652,9 @@ async function scanTetherToday(chan) {
   }
 
   if (candidates.length) {
-    candidates.sort((a, b) => b.id - a.id);
+    candidates.sort(compareByTimeThenIdDesc);
     const newest = candidates[0];
-    // بدون قید و شرط، آخرین کاندید امروز را جایگزین کن
+    // همیشه جدیدترینِ امروز را جایگزین کن (بدون آستانهٔ ۱۰ دقیقه)
     pick = newest;
   }
 
@@ -657,9 +676,7 @@ async function scanTetherLast(chan, startBefore) {
       const text = extractMessageText(block);
       if (!text) continue;
 
-      const inc = hasAny(text, chan.INCLUDE);
-      const exc = hasAny(text, chan.EXCLUDE);
-      if (!inc || exc) continue;
+      if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
 
       const val = extractTether(text);
       if (val) {
@@ -675,7 +692,7 @@ async function scanTetherLast(chan, startBefore) {
   return { last: null };
 }
 
-// Tehran3bze: today + last با parser اختصاصی (buy/sell/mid)
+// Tehran3bze: today + last با parser اختصاصی (buy/sell/mid) — بدون تغییر
 async function scanTehranTodayAndLast() {
   const resToday = await scanCashTodayGeneric(CH.Dollar_Tehran3bze, extractTehranCash);
   const resLast  = await scanCashLast(CH.Dollar_Tehran3bze, resToday.nextBefore);
