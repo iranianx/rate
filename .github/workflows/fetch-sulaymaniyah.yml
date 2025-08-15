@@ -1,0 +1,47 @@
+name: Fetch Sulaymaniyah "کف مشهد"
+
+on:
+  workflow_dispatch: {}
+  # برای زمان‌بندی خودکار، این را باز کن (ساعت استانبول: +03:00)
+  # schedule:
+  #   - cron: "*/30 * * * *"  # هر 30 دقیقه
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Istanbul
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run scraper
+        run: node scripts/fetch-sulaymaniyah.mjs
+
+      - name: Show result
+        run: |
+          echo "Result file:"
+          cat data/sources/sulaymaniyah_latest.json || true
+
+      - name: Commit & push if changed
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add data/sources/sulaymaniyah_latest.json
+            git commit -m "chore: update sulaymaniyah latest (کف مشهد)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
