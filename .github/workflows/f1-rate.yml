@@ -1,7 +1,7 @@
 name: "F1 Rate: test"
 
 on:
-  workflow_dispatch: {}   # فقط دستی، طبق خواسته‌ت
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -22,13 +22,21 @@ jobs:
         with:
           node-version: 20
 
+      - name: "Debug tree (optional)"
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 3 -type f | sort
+
       - name: "Run f1 scraper"
-        run: node rate/scripts/f1-rate.mjs
+        working-directory: rate
+        run: node scripts/f1-rate.mjs
 
       - name: "Show result"
+        working-directory: rate
         run: |
           echo "Result file:"
-          cat rate/data/f1-exit.json || true
+          cat data/f1-exit.json || true
 
       - name: "Commit & push if changed"
         run: |
