@@ -3,14 +3,15 @@
   "found": true,
   "source": "https://t.me/s/dollar_sulaymaniyah",
   "needle": "کف مشهد",
-  "link": "https://t.me/dollar_sulaymaniyah/1231823",
-  "date_text": "16:23",
-  "scraped_at": "2025-08-15T10:55:18.817Z",
-  "text": "کف مشهد 91800",
+  "link": "https://t.me/dollar_sulaymaniyah/1231845",
+  "date_text": "10:40",
+  "scraped_at": "2025-08-15T11:07:12.454Z",
+  "text": "کف مشهد 91650",
   "usd_floor_mashhad": {
-    "value": 91800,
+    "value": 91650,
     "unit": "تومان",
-    "raw_line": "کف مشهد 91800"
+    "raw_line": "کف مشهد 91650"
   },
-  "eur_floor_mashhad": null
+  "eur_floor_mashhad": null,
+  "message_id": 1231845
 }
