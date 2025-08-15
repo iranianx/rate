@@ -577,29 +577,150 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5/5 — Tether Today (Double-Check + Cache-Buster + Forward Probe)
+// SECTION 5/5 — Tether Today (Head Probe + Backscan, Aban-only)
 // =======================================
 
-const TETHER_DOUBLECHECK_SCAN_LIMIT = 200;   // عمق دابل‌چک برای کانال‌های پرپست
-const TETHER_FORWARD_PROBE_LIMIT    = 500;   // حداکثر تعداد ID برای پویش رو به جلو
-const TETHER_FORWARD_PROBE_ONLY_ABAN = true; // پویش رو به جلو فقط برای AbanTetherPrice
+const TETHER_BACKSCAN_LIMIT = 500; // چند صد پیام آخر را برای یافتن «آخرین نرخ امروز» بررسی کن
 
 async function scanTetherToday(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  // مقایسهٔ «جدیدتر» بر مبنای time_iso، و در تساوی بر مبنای id
-  const cmpByTimeThenIdDesc = (a, b) => {
-    const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
-    const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
-    if (tb !== ta) return tb - ta;
-    return (b?.id || 0) - (a?.id || 0);
+  // اگر کانال Aban نباشد، از منطق قبلی (fallback) استفاده کن
+  const isAban = /\/AbanTetherPrice(?:\/|$|\?)/i.test(chan.URL);
+  if (!isAban) {
+    return await scanTetherToday_Fallback(chan); // ⬅️ همان منطق قبلی‌ات (Defined just below)
+  }
+
+  // 1) یک seed اولیه از نمای /s/ بگیر (ممکن است قدیمی باشد؛ فقط برای شروع)
+  let seedId = 0;
+  {
+    const blocks = await fetchPage(chan.URL, null);
+    for (const b of blocks) {
+      const m = extractMessageMeta(b);
+      if (m?.id) seedId = Math.max(seedId, m.id);
+    }
+    if (seedId === 0) {
+      // اگر حتی /s/ هم خالی بود، عددی محافظه‌کارانه بگذار (از 1 شروع می‌کنیم)
+      seedId = 1;
+    }
+  }
+
+  // 2) Head Probe — جست‌وجوی نمایی برای یافتن «بالاترین ID موجود» در سر کانال
+  const base = chan.URL.replace("/s/", "/").replace(/\/$/, "");
+  const existsMsg = async (id) => {
+    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
+    const url = `${base}/${id}?embed=1&__ts=${ts}`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+          accept: "text/html,application/xhtml+xml",
+        },
+      });
+      if (!res.ok) return null; // 404 یا خطا => وجود ندارد
+      const html = await res.text();
+
+      // برای صفحهٔ embed، کل HTML را به‌عنوان یک "block" واحد پاس بده
+      const block = html;
+      const text = extractMessageText(block);
+      const meta = extractMessageMeta(block) || {};
+      if (!meta.id) meta.id = id;
+      if (!meta.link) meta.link = `${base}/${id}`;
+      return { text, meta };
+    } catch {
+      return null;
+    }
   };
 
-  // — مرحلهٔ اصلی: پیمایش today با before (مثل قبل)
+  // یافتن بازهٔ [low..high] که در آن highest موجود است
+  let low = seedId;
+  let high = seedId;
+  let step = 64;
+  let probe = await existsMsg(high);
+
+  // اگر seedId هم موجود نیست، تا موجود پیدا کنیم پایین می‌آییم
+  if (!probe) {
+    for (let back = seedId; back >= Math.max(1, seedId - 2048); back--) {
+      const p = await existsMsg(back);
+      if (p) { low = high = back; probe = p; break; }
+    }
+    if (!probe) {
+      // هیچ پیامی پیدا نشد؛ خروجی خالی
+      return { pick: null, foundToday: false, nextBefore: null };
+    }
+  }
+
+  // جهشی رو به جلو تا اولین جایی که پیام «وجود ندارد» (مرز بالا)
+  while (true) {
+    const nextId = high + step;
+    const p = await existsMsg(nextId);
+    if (p) {
+      low = nextId; high = nextId; // مرز پایین را هم بالا بیاور
+      step *= 2;
+      continue;
+    } else {
+      // اگر قدم خیلی بزرگ است، کوچکش کن
+      if (step > 1) {
+        step = Math.floor(step / 2);
+        continue;
+      }
+      // به مرز رسیدیم: high همان آخرین موجود نیست؛ last موجود بین low..high است
+      break;
+    }
+  }
+
+  // باینری سرچ بین (low..low+step) برای آخرین موجود
+  let left = low, right = low + 1; // چون در حلقهٔ بالا، step=1 شده
+  // (در این نقطه، right وجود ندارد و left وجود دارد)
+  let latestId = left;
+
+  // 3) Backscan — از آخرین ID موجود به پایین بیاییم تا «آخرین پستِ امروزِ قابل‌پارْس» را پیدا کنیم
+  const pickFromEmbed = async (id) => {
+    const p = await existsMsg(id);
+    if (!p || !p.text) return null;
+
+    // فیلتر الگوی نرخ تتر
+    if (!hasAny(p.text, chan.INCLUDE) || hasAny(p.text, chan.EXCLUDE)) return null;
+
+    // فقط پست‌های امروز
+    const { ok, timeISO } = isBlockToday(p.meta, todayKey);
+    if (!ok) return null;
+
+    const val = extractTether(p.text);
+    if (!val) return null;
+
+    const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
+    return {
+      ...val,
+      id: p.meta.id ?? id,
+      link: p.meta.link || `${base}/${id}`,
+      time_iso: timeISO,
+      age_hours: age,
+    };
+  };
+
+  let pick = null;
+  // از آخرین ID موجود (latestId) تا حداکثر TETHER_BACKSCAN_LIMIT پیام به پایین
+  // نکته: چون از بالا به پایین می‌آییم، اولین تطبیق، «آخرینِ امروز» است؛ بعد از یافتن، break
+  for (let id = latestId; id >= Math.max(1, latestId - TETHER_BACKSCAN_LIMIT); id--) {
+    const cand = await pickFromEmbed(id);
+    if (cand) { pick = cand; break; }
+  }
+
+  return { pick, foundToday: Boolean(pick), nextBefore: null };
+}
+
+/**
+ * Fallback برای کانال‌های غیر آبان: همان منطق قبلی (اسکن today با before در /s/).
+ * این تابع ساده نگه داشته شده تا فقط نقش «بدون تغییر» را بازی کند.
+ */
+async function scanTetherToday_Fallback(chan) {
+  const now = new Date();
+  const todayKey = dateKeyInTZ(now);
+
   let before = null, pages = 0;
   const picks = [];
-  let maxSeenId = 0;
 
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
@@ -609,10 +730,7 @@ async function scanTetherToday(chan) {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta?.id) {
-        pageMinId = Math.min(pageMinId, meta.id);
-        if (meta.id > maxSeenId) maxSeenId = meta.id;
-      }
+      if (meta?.id) pageMinId = Math.min(pageMinId, meta.id);
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -636,134 +754,19 @@ async function scanTetherToday(chan) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // «پیک امروز» بر مبنای زمان
+  // «آخرینِ امروز» (اگر بود)
   let pick = null;
   if (picks.length) {
-    picks.sort(cmpByTimeThenIdDesc);
+    picks.sort((a, b) => {
+      const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
+      const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return (b?.id || 0) - (a?.id || 0);
+    });
     pick = picks[0];
   }
 
-  // — دابل‌چک: صفحهٔ اول با cache-buster و عمق زیاد
-  async function fetchFirstPageFresh(url) {
-    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
-    const freshUrl = url.includes("?") ? `${url}&__ts=${ts}` : `${url}?__ts=${ts}`;
-    const res = await fetch(freshUrl, {
-      headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-        accept: "text/html,application/xhtml+xml",
-      },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} for ${freshUrl}`);
-    const html = await res.text();
-    return extractBlocks(html);
-  }
-
-  const freshBlocks = await fetchFirstPageFresh(chan.URL);
-  const candidates = [];
-  let scanned = 0;
-
-  for (const block of freshBlocks) {
-    scanned++; if (scanned > TETHER_DOUBLECHECK_SCAN_LIMIT) break;
-
-    const meta = extractMessageMeta(block);
-    if (meta?.id && meta.id > maxSeenId) maxSeenId = meta.id;
-
-    if (!meta?.id) continue;
-
-    const text = extractMessageText(block);
-    if (!text) continue;
-    if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
-
-    const { ok, timeISO } = isBlockToday(meta, todayKey);
-    if (!ok) continue;
-
-    const val = extractTether(text);
-    if (val) {
-      const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      candidates.push({ ...val, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
-    }
-  }
-
-  if (candidates.length) {
-    candidates.sort(cmpByTimeThenIdDesc);
-    pick = candidates[0]; // بدون آستانهٔ زمانی، همیشه جدیدترینِ امروز را جایگزین کن
-  }
-
-  // — پویش رو به جلو (Forward Probe) برای کانال‌های پرتکرار (فقط Aban)
-  const isAban = /\/AbanTetherPrice$/i.test(chan.URL) || /\/AbanTetherPrice\?/.test(chan.URL);
-  if (!TETHER_FORWARD_PROBE_ONLY_ABAN || isAban) {
-    // اگر maxSeenId داریم، از id بعدی رو به جلو تا ۵۰۰ پیام را امتحان می‌کنیم
-    if (maxSeenId > 0) {
-      const fwdCandidates = [];
-      const upperBound = maxSeenId + TETHER_FORWARD_PROBE_LIMIT;
-
-      for (let probeId = maxSeenId + 1; probeId <= upperBound; probeId++) {
-        const msg = await fetchMessageEmbed(chan, probeId);
-        if (!msg) continue; // 404 یا محتوای بی‌ربط
-
-        // پیام را مثل بقیهٔ مسیرها بررسی کن
-        if (!hasAny(msg.text, chan.INCLUDE) || hasAny(msg.text, chan.EXCLUDE)) continue;
-
-        const { ok, timeISO } = isBlockToday(msg.meta, todayKey);
-        if (!ok) continue;
-
-        const val = extractTether(msg.text);
-        if (!val) continue;
-
-        const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-        fwdCandidates.push({
-          ...val,
-          id: msg.meta.id ?? probeId,
-          link: msg.meta.link || `${chan.URL.replace('/s/', '/')}/${probeId}`,
-          time_iso: timeISO,
-          age_hours: age,
-        });
-      }
-
-      if (fwdCandidates.length) {
-        fwdCandidates.sort(cmpByTimeThenIdDesc);
-        pick = fwdCandidates[0]; // آخرینِ امروز از مسیر مستقیمِ پیام‌ها
-      }
-    }
-  }
-
   return { pick, foundToday: Boolean(pick), nextBefore: before };
-}
-
-// واکشی پیام تکی به‌صورت embed (برای پویش رو به جلو)
-async function fetchMessageEmbed(chan, id) {
-  try {
-    const base = chan.URL.replace("/s/", "/"); // از نمای «/s/» به نمای معمولی برو
-    const ts = Date.now().toString() + "_" + Math.floor(Math.random() * 1e6);
-    const url = `${base.replace(/\/$/, "")}/${id}?embed=1&__ts=${ts}`;
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-        accept: "text/html,application/xhtml+xml",
-      },
-    });
-    if (!res.ok) return null; // 404 یا خطا
-    const html = await res.text();
-    const blocks = extractBlocks(html);
-    if (!blocks.length) return null;
-
-    // معمولاً یک بلاک است
-    const block = blocks[0];
-    const text = extractMessageText(block);
-    const meta = extractMessageMeta(block);
-
-    // sanity: اگر کانال اشتباه بود یا متن نداشت
-    if (!text || !meta?.id) return null;
-
-    // لینک مطمئن
-    if (!meta.link) {
-      meta.link = `${base.replace(/\/$/, "")}/${meta.id}`;
-    }
-
-    return { text, meta };
-  } catch {
-    return null;
-  }
 }
 
 // =======================================
