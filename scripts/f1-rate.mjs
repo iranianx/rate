@@ -50,6 +50,44 @@ const CH = {
 
 function ensureDir(p) { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
 
+// --- Logging کم‌حجم (فعال با DEBUG=1)
+const DEBUG = process.env.DEBUG === "1";
+const dlog = (...args) => { if (DEBUG) console.log("[F1]", ...args); };
+
+// --- پارامترهای شبکه (ENV قابل‌تنظیم)
+const FETCH_TIMEOUT_MS = Number(process.env.F1_TIMEOUT_MS || 20000); // 20s
+const FETCH_RETRIES    = Number(process.env.F1_RETRIES    || 2);     // 2 بار تلاش مجدد
+
+// --- TTL (حداکثر سنِ داده برای «امروز»)
+const TTL_USD_HOURS      = Number(process.env.F1_TTL_USD_HRS  || 24);
+const TTL_USDT_HOURS     = Number(process.env.F1_TTL_USDT_HRS || 12);
+const TTL_BONBAST_HOURS  = Number(process.env.F1_TTL_BB_HRS   || 6);
+
+// --- بازهٔ منطقی با امکان override از ENV
+const PLAUSIBLE = {
+  USD: {
+    min: Number(process.env.F1_PLAUSIBLE_USD_MIN  || 80000),
+    max: Number(process.env.F1_PLAUSIBLE_USD_MAX  || 130000),
+  },
+  EUR: {
+    min: Number(process.env.F1_PLAUSIBLE_EUR_MIN  || 100000),
+    max: Number(process.env.F1_PLAUSIBLE_EUR_MAX  || 140000),
+  },
+  USDT: {
+    min: Number(process.env.F1_PLAUSIBLE_USDT_MIN || 80000),
+    max: Number(process.env.F1_PLAUSIBLE_USDT_MAX || 130000),
+  },
+};
+
+export {
+  OUTDIR, OUTFILE, TZ,
+  MAX_PAGES_TODAY, MAX_PAGES_HISTORY,
+  MIN_GAP_MINUTES_FOR_DOUBLECHECK,
+  CH, ensureDir, DEBUG, dlog,
+  FETCH_TIMEOUT_MS, FETCH_RETRIES,
+  TTL_USD_HOURS, TTL_USDT_HOURS, TTL_BONBAST_HOURS,
+  PLAUSIBLE
+};
 
 // ==========================================
 // SECTION 2 — Text Normalization & Numbers
@@ -119,6 +157,56 @@ function dateKeyInTZ(d, tz = TZ) {
   }).format(d); // YYYY-MM-DD
 }
 
+// ——— افزوده‌ها: زمان محلی + چک بازه + استخراج نزدیک کلیدواژه ———
+function toTZISO(iso, tz = TZ) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  }).formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+function inRange(n, lo, hi) { return typeof n === "number" && n >= lo && n <= hi; }
+function plausible(code, n) {
+  const r = PLAUSIBLE[code];
+  return r ? inRange(n, r.min, r.max) : true;
+}
+
+function extractNearKeywords(fullText, includeWords, codeForPlausibility = null) {
+  const raw = faToEnDigits(fullText || "");
+  const numRe = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{4,6})/g;
+  const norm = normalizeFa(raw);
+
+  // 1) پنجرهٔ ±60 کاراکتر اطراف هر کلیدواژه
+  for (const w of (includeWords || [])) {
+    const key = normalizeFa(w);
+    const idx = norm.indexOf(key);
+    if (idx === -1) continue;
+    const lo = Math.max(0, idx - 60);
+    const hi = Math.min(raw.length, idx + key.length + 60);
+    const win = raw.slice(lo, hi);
+    let m;
+    while ((m = numRe.exec(win))) {
+      const n = Number((m[1] || "").replace(/[^\d]/g, ""));
+      if (n >= 1000 && n <= 200000 && (!codeForPlausibility || plausible(codeForPlausibility, n))) {
+        return n;
+      }
+    }
+  }
+
+  // 2) fallback: اولین عدد منطقی در کل متن
+  let m2;
+  while ((m2 = numRe.exec(raw))) {
+    const n = Number((m2[1] || "").replace(/[^\d]/g, ""));
+    if (n >= 1000 && n <= 200000 && (!codeForPlausibility || plausible(codeForPlausibility, n))) {
+      return n;
+    }
+  }
+  return null;
+}
 
 // =====================================
 // SECTION 3 — Telegram Fetch & Parsing
@@ -155,17 +243,40 @@ function extractMessageMeta(block) {
   return { link, dateText, id, datetimeISO };
 }
 
+// --- fetch با timeout+retry (از بخش 1 پیکربندی می‌گیرد)
+async function fetchTextWithRetry(url) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= (1 + FETCH_RETRIES); attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+    const t0 = Date.now();
+    try {
+      const r = await fetch(url, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+          accept: "text/html,application/xhtml+xml",
+        },
+        signal: ctl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const html = await r.text();
+      dlog("GET OK", url, `${Date.now() - t0}ms`);
+      return html;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e;
+      dlog("GET FAIL", url, `(try ${attempt}/${1 + FETCH_RETRIES}) →`, e?.name || "", e?.message || e);
+      if (attempt < (1 + FETCH_RETRIES)) await new Promise(res => setTimeout(res, 500));
+    }
+  }
+  throw lastErr || new Error("Network failed");
+}
+
 async function fetchPage(url, beforeId = null) {
   const u = beforeId ? `${url}?before=${beforeId}` : url;
-  const res = await fetch(u, {
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-      accept: "text/html,application/xhtml+xml",
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${u}`);
-  const html = await res.text();
+  const html = await fetchTextWithRetry(u);
   return extractBlocks(html);
 }
 
@@ -177,7 +288,7 @@ function extractCurrenciesFromSuli(fullText) {
   const norm = normalizeFa(fullText);
   const linesAll = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
 
-  // ⛔️ فیلتر خطوط مربوط به دینار عراق (IQD) تا اشتباهاً به‌عنوان USD/EUR برداشت نشوند
+  // ⛔️ فیلتر خطوط مربوط به دینار عراق (IQD)
   const lines = linesAll.filter(l => !/(^|\s)(دینار|عراق|\bIQD\b|د\.ع)(\s|$)/i.test(l));
 
   const isEUR = (l) => /(\bEUR\b|€|یورو)/i.test(l);
@@ -192,13 +303,14 @@ function extractCurrenciesFromSuli(fullText) {
     if (isEUR(floorLine) && nums.length) {
       const min = Math.min(...nums), max = Math.max(...nums);
       const avg = Math.round((min + max) / 2);
-      eur = { value: avg, min, max, unit: "تومان", raw_line: floorLine };
+      if (plausible("EUR", avg)) eur = { value: avg, min, max, unit: "تومان", raw_line: floorLine };
     } else if (nums.length) {
-      usd = { value: nums[0], unit: "تومان", raw_line: floorLine };
+      const v = nums[0];
+      if (plausible("USD", v)) usd = { value: v, unit: "تومان", raw_line: floorLine };
     }
   }
 
-  // اگر یورو هنوز پیدا نشده، از کل خطوطی که «یورو/EUR/€» دارند میانگین بازه را بگیر
+  // اگر یورو هنوز پیدا نشده، از خطوط حاوی یورو میانگین بازه را بگیر
   if (!eur) {
     for (const line of lines) {
       if (isEUR(line)) {
@@ -206,8 +318,10 @@ function extractCurrenciesFromSuli(fullText) {
         if (nums.length) {
           const min = Math.min(...nums), max = Math.max(...nums);
           const avg = Math.round((min + max) / 2);
-          eur = { value: avg, min, max, unit: "تومان", raw_line: line };
-          break;
+          if (plausible("EUR", avg)) {
+            eur = { value: avg, min, max, unit: "تومان", raw_line: line };
+            break;
+          }
         }
       }
     }
@@ -219,8 +333,11 @@ function extractCurrenciesFromSuli(fullText) {
       if (isUSD(line)) {
         const nums = pickIntegersAll(line);
         if (nums.length) {
-          usd = { value: nums[0], unit: "تومان", raw_line: line };
-          break;
+          const v = nums[0];
+          if (plausible("USD", v)) {
+            usd = { value: v, unit: "تومان", raw_line: line };
+            break;
+          }
         }
       }
     }
@@ -229,13 +346,18 @@ function extractCurrenciesFromSuli(fullText) {
   return { usd, eur };
 }
 
-// — HERAT/TEHRAN: نقدی
+// — HERAT/TEHRAN: نقدی (اولویت نزدیک به کلیدواژه‌ها + چک بازه)
 function extractCashValue(fullText, include, exclude) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
   const cand = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
   const target = cand.length ? cand : lines;
 
+  // تلاش 1: عدد نزدیک به کلیدواژه‌ها (USD)
+  const near = extractNearKeywords(fullText, include, "USD");
+  if (near) return { value: near, unit: "تومان", raw_line: target.join(" | ") };
+
+  // تلاش 2: همان منطق بازه/اولین عدد
   let nums = [];
   for (const ln of target) nums.push(...pickIntegersAll(ln));
   nums = nums.filter(Boolean);
@@ -244,8 +366,10 @@ function extractCashValue(fullText, include, exclude) {
   if (nums.length >= 2) {
     const min = Math.min(...nums), max = Math.max(...nums);
     const avg = Math.round((min + max) / 2);
+    if (!plausible("USD", avg)) return null;
     return { value: avg, min, max, unit: "تومان", raw_line: target.join(" | ") };
   } else {
+    if (!plausible("USD", nums[0])) return null;
     return { value: nums[0], unit: "تومان", raw_line: target[0] };
   }
 }
@@ -271,6 +395,7 @@ function extractTehranCash(fullText) {
   if (buy && sell) mid = Math.round((buy + sell) / 2);
   else mid = buy || sell;
 
+  if (mid && !plausible("USD", mid)) return null;
   return { buy: buy || null, sell: sell || null, mid, unit: "تومان", raw_line: fullText };
 }
 
@@ -293,6 +418,8 @@ function extractTether(fullText) {
   else if (rateM) mid = Number((rateM[1] || "").replace(/[^\d]/g, ""));
 
   if (!sell && !buy && !rateM) return null;
+  if (mid && !plausible("USDT", mid)) return null;
+
   return { sell: sell || null, buy: buy || null, mid: mid || null, unit: "تومان", raw_line: fullText };
 }
 
@@ -309,16 +436,14 @@ function isBlockToday(meta, todayKey) {
 // =======================================
 // SECTION 5.2 — Generic "Cash Today" with Double-Check (Herat / custom parsers)
 // =======================================
-
 async function scanCashTodayGeneric(chan, parseFn) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  let before = null, pages = 0;
+  let before = null, pages = 0, maxId = 0;
   const picks = [];
   let sawTodayOnPage = false;
 
-  // مرحلهٔ اصلی: پیمایش امروز با before
   while (pages < MAX_PAGES_TODAY) {
     const blocks = await fetchPage(chan.URL, before);
     if (!blocks.length) break;
@@ -328,7 +453,7 @@ async function scanCashTodayGeneric(chan, parseFn) {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+      if (meta.id) { pageMinId = Math.min(pageMinId, meta.id); maxId = Math.max(maxId, meta.id); }
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -345,7 +470,14 @@ async function scanCashTodayGeneric(chan, parseFn) {
       const val = parseFn(text);
       if (val) {
         const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+        picks.push({
+          ...val,
+          id: meta.id ?? 0,
+          link: meta.link || null,
+          time_iso: timeISO,
+          time_local: timeISO ? toTZISO(timeISO, TZ) : null,
+          age_hours: age
+        });
       }
     }
 
@@ -354,14 +486,11 @@ async function scanCashTodayGeneric(chan, parseFn) {
     if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // آخرین پیکِ امروز (بر اساس ID بزرگ‌تر)
+  // آخرین پیکِ امروز
   let pick = null;
-  if (picks.length) {
-    picks.sort((a, b) => b.id - a.id);
-    pick = picks[0];
-  }
+  if (picks.length) { picks.sort((a, b) => b.id - a.id); pick = picks[0]; }
 
-  // دابل‌چک: صفحهٔ اول تا سقف ۳۰ پست (بدون شرط id<=maxId)
+  // Double-check: صفحهٔ اول تا سقف 30 پست، بدون break روی id<=maxId
   const freshBlocks = await fetchPage(chan.URL, null);
   const candidates = [];
   let scanned = 0;
@@ -371,6 +500,7 @@ async function scanCashTodayGeneric(chan, parseFn) {
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
+    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -382,19 +512,30 @@ async function scanCashTodayGeneric(chan, parseFn) {
     const val = parseFn(text);
     if (val) {
       const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      candidates.push({ ...val, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      candidates.push({
+        ...val,
+        id: meta.id,
+        link: meta.link || null,
+        time_iso: timeISO,
+        time_local: timeISO ? toTZISO(timeISO, TZ) : null,
+        age_hours: age
+      });
     }
   }
 
   if (candidates.length) {
     candidates.sort((a, b) => b.id - a.id);
     const newest = candidates[0];
-    if (!pick) {
-      pick = newest;
-    } else {
+    if (!pick) pick = newest;
+    else {
       const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
       if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
     }
+  }
+
+  // TTL برای today (USD/نقدی)
+  if (pick && typeof pick.age_hours === "number" && pick.age_hours > TTL_USD_HOURS) {
+    pick = null;
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
@@ -426,8 +567,64 @@ async function scanCashLast(chan, startBefore) {
         if (val) {
           const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
           const age = dtISO ? minutesBetween(new Date(), new Date(dtISO)) / 60 : null;
-          return { last: { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } };
+          const tloc = dtISO ? toTZISO(dtISO, TZ) : null;
+          return {
+            last: {
+              ...val,
+              id: meta.id ?? 0,
+              link: meta.link || null,
+              time_iso: dtISO,
+              time_local: tloc,
+              age_hours: age
+            }
+          };
         }
+      }
+    }
+
+    pages += 1;
+    if (Number.isFinite(nextBefore)) before = nextBefore; else break;
+  }
+  return { last: null };
+}
+
+// =======================================
+// SECTION 5.3.1 — Tehran "Last" (schema-aligned with buy/sell/mid)
+// =======================================
+
+async function scanTehranLast(startBefore) {
+  const chan = CH.Dollar_Tehran3bze;
+  let before = startBefore || null, pages = 0;
+
+  while (pages < MAX_PAGES_HISTORY) {
+    const blocks = await fetchPage(chan.URL, before);
+    if (!blocks.length) break;
+    let nextBefore = Infinity;
+
+    for (const block of blocks) {
+      const meta = extractMessageMeta(block);
+      if (meta?.id) nextBefore = Math.min(nextBefore, meta.id);
+
+      const text = extractMessageText(block);
+      if (!text) continue;
+
+      if (!hasAny(text, chan.INCLUDE) || hasAny(text, chan.EXCLUDE)) continue;
+
+      const parsed = extractTehranCash(text); // ← همان parser امروز
+      if (parsed) {
+        const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
+        const age = dtISO ? minutesBetween(new Date(), new Date(dtISO)) / 60 : null;
+        const tloc = dtISO ? toTZISO(dtISO, TZ) : null;
+        return {
+          last: {
+            ...parsed,               // { buy, sell, mid, unit, raw_line }
+            id: meta.id ?? 0,
+            link: meta.link || null,
+            time_iso: dtISO,
+            time_local: tloc,
+            age_hours: age
+          }
+        };
       }
     }
 
@@ -440,12 +637,11 @@ async function scanCashLast(chan, startBefore) {
 // =======================================
 // SECTION 5.4 — Sulaymaniyah (Today + Double-Check + Last)
 // =======================================
-
 async function scanSuliToday() {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
-  let before = null, pages = 0;
+  let before = null, pages = 0, maxId = 0;
   const usdToday = [], eurToday = [];
 
   while (pages < MAX_PAGES_TODAY) {
@@ -456,7 +652,7 @@ async function scanSuliToday() {
 
     for (const block of blocks) {
       const meta = extractMessageMeta(block);
-      if (meta.id) pageMinId = Math.min(pageMinId, meta.id);
+      if (meta.id) { pageMinId = Math.min(pageMinId, meta.id); maxId = Math.max(maxId, meta.id); }
 
       const text = extractMessageText(block);
       if (!text) continue;
@@ -472,8 +668,8 @@ async function scanSuliToday() {
 
       const { usd, eur } = extractCurrenciesFromSuli(text);
       const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-      if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
-      if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+      if (usd) usdToday.push({ ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, time_local: toTZISO(timeISO, TZ), age_hours: age });
+      if (eur) eurToday.push({ ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, time_local: toTZISO(timeISO, TZ), age_hours: age });
     }
 
     pages += 1;
@@ -485,7 +681,7 @@ async function scanSuliToday() {
   let usdPick = pickLatest(usdToday);
   let eurPick = pickLatest(eurToday);
 
-  // Double-check: تا 30 پست اول صفحهٔ اول (بدون شرط id<=maxId)
+  // Double-check: تا 30 پست اول صفحهٔ اول، بدون break روی id<=maxId
   const freshBlocks = await fetchPage(CH.Dollar_Sulaymaniyah.URL, null);
   const candUSD = [], candEUR = [];
   let scanned = 0;
@@ -495,6 +691,7 @@ async function scanSuliToday() {
 
     const meta = extractMessageMeta(block);
     if (!meta?.id) continue;
+    if (maxId && meta.id <= maxId) continue;
 
     const text = extractMessageText(block);
     if (!text) continue;
@@ -509,8 +706,8 @@ async function scanSuliToday() {
     const { usd, eur } = extractCurrenciesFromSuli(text);
     const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
 
-    if (usd) candUSD.push({ ...usd, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
-    if (eur) candEUR.push({ ...eur, id: meta.id, link: meta.link || null, time_iso: timeISO, age_hours: age });
+    if (usd) candUSD.push({ ...usd, id: meta.id, link: meta.link || null, time_iso: timeISO, time_local: toTZISO(timeISO, TZ), age_hours: age });
+    if (eur) candEUR.push({ ...eur, id: meta.id, link: meta.link || null, time_iso: timeISO, time_local: toTZISO(timeISO, TZ), age_hours: age });
   }
 
   const maybeUpdateByGap = (oldPick, cands) => {
@@ -524,6 +721,10 @@ async function scanSuliToday() {
 
   usdPick = maybeUpdateByGap(usdPick, candUSD);
   eurPick = maybeUpdateByGap(eurPick, candEUR);
+
+  // TTL for today
+  if (usdPick && typeof usdPick.age_hours === "number" && usdPick.age_hours > TTL_USD_HOURS) usdPick = null;
+  if (eurPick && typeof eurPick.age_hours === "number" && eurPick.age_hours > TTL_USD_HOURS) eurPick = null;
 
   return {
     usdPick, eurPick,
@@ -558,8 +759,8 @@ async function scanSuliLast(startBefore) {
 
       if (usd || eur) {
         return {
-          usdLast: usd ? { ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } : null,
-          eurLast: eur ? { ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } : null,
+          usdLast: usd ? { ...usd, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, time_local: dtISO ? toTZISO(dtISO, TZ) : null, age_hours: age } : null,
+          eurLast: eur ? { ...eur, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, time_local: dtISO ? toTZISO(dtISO, TZ) : null, age_hours: age } : null,
         };
       }
     }
@@ -571,30 +772,25 @@ async function scanSuliLast(startBefore) {
 }
 
 // =======================================
-// SECTION 5/5 — Tether Today
-//  - AbanTetherPrice: pick newest "today" with age ≥ 10 minutes
-//  - Others (e.g., TetherLand): pick newest "today" with no lag
+// SECTION 5/5 — Tether Today (Aban lag 10m + Others no lag)
 // =======================================
 
-const ABAN_LAG_MINUTES = 10;             // ← 10 دقیقه
+const ABAN_LAG_MINUTES = 10;
 const ABAN_LAG_HOURS   = ABAN_LAG_MINUTES / 60;
-const ABAN_MAX_PAGES_FOR_LAG = 12;       // تا ~240 پست از /s/؛ برای 10 دقیقه کافی است
+const ABAN_MAX_PAGES_FOR_LAG = 12;   // ~تا 240 پست
 
-// اسکن امروز برای آبان: «جدیدترین پستِ امروز» که حداقل ۱۰ دقیقه از انتشارش گذشته باشد
 async function scanTetherToday(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
 
   const isAban = /\/AbanTetherPrice(?:\/|$|\?)/i.test(chan.URL);
   if (!isAban) {
-    // برای کانال‌های غیر آبان، همان منطق ساده (بدون lag)
     return await scanTetherToday_Fallback(chan);
   }
 
   let before = null;
   let pages = 0;
-
-  const candidates = []; // فقط پست‌های «امروز» که الگوی تتر دارند
+  const candidates = [];
 
   while (pages < ABAN_MAX_PAGES_FOR_LAG) {
     const blocks = await fetchPage(chan.URL, before);
@@ -610,10 +806,8 @@ async function scanTetherToday(chan) {
       const text = extractMessageText(block);
       if (!text) continue;
 
-      // فقط پست‌های دارای الگوی تتر و بدون کلمات استثنا
       if (!hasAny(text, CH.AbanTetherPrice.INCLUDE) || hasAny(text, CH.AbanTetherPrice.EXCLUDE)) continue;
 
-      // فقط «امروز»
       const { ok, timeISO } = isBlockToday(meta, todayKey);
       if (!ok) continue;
 
@@ -628,39 +822,35 @@ async function scanTetherToday(chan) {
         id: meta.id ?? 0,
         link: meta.link || null,
         time_iso: timeISO || null,
+        time_local: timeISO ? toTZISO(timeISO, TZ) : null,
         age_hours: age,
       });
     }
 
     pages += 1;
-    if (!sawAny) break;                 // اگر در این صفحه اصلاً پست «امروز» نبود، ادامه نده
-    if (Number.isFinite(pageMinId)) {
-      before = pageMinId;               // برو قدیمی‌ترها
-    } else {
-      break;
-    }
+    if (!sawAny) break;
+    if (Number.isFinite(pageMinId)) before = pageMinId; else break;
   }
 
-  // فیلتر: فقط مواردی که ≥۱۰ دقیقه سن دارند
+  // فیلتر: ≥ 10 دقیقه
   const aged = candidates.filter(c => typeof c.age_hours === "number" && c.age_hours >= ABAN_LAG_HOURS);
 
-  // انتخاب: «نزدیک‌ترین به ۱۰ دقیقه» (کمترین age_hours بین موارد ≥۱۰ دقیقه)، و در تساوی ID بزرگ‌تر
   let pick = null;
   if (aged.length) {
     aged.sort((a, b) => (a.age_hours - b.age_hours) || (b.id - a.id));
     pick = aged[0];
   } else {
-    // اگر هنوز کمتر از ۱۰ دقیقه از آخرین پست‌های امروز گذشته یا چیزی نیامده: خروجی امروز آبان خالی بماند
+    pick = null;
+  }
+
+  // TTL USDT
+  if (pick && typeof pick.age_hours === "number" && pick.age_hours > TTL_USDT_HOURS) {
     pick = null;
   }
 
   return { pick, foundToday: Boolean(pick), nextBefore: before };
 }
 
-/**
- * Fallback برای کانال‌های غیر آبان: اسکن سادهٔ امروز (بدون lag)
- * - «جدیدترین پست امروز» با الگوی تتر را انتخاب می‌کند.
- */
 async function scanTetherToday_Fallback(chan) {
   const now = new Date();
   const todayKey = dateKeyInTZ(now);
@@ -692,7 +882,7 @@ async function scanTetherToday_Fallback(chan) {
       const val = extractTether(text);
       if (val) {
         const age = timeISO ? minutesBetween(now, new Date(timeISO)) / 60 : null;
-        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, age_hours: age });
+        picks.push({ ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: timeISO, time_local: toTZISO(timeISO, TZ), age_hours: age });
       }
     }
 
@@ -703,7 +893,6 @@ async function scanTetherToday_Fallback(chan) {
 
   let pick = null;
   if (picks.length) {
-    // «جدیدترینِ امروز» بر مبنای time_iso، و در تساوی بر اساس id
     picks.sort((a, b) => {
       const ta = a?.time_iso ? new Date(a.time_iso).getTime() : 0;
       const tb = b?.time_iso ? new Date(b.time_iso).getTime() : 0;
@@ -713,9 +902,13 @@ async function scanTetherToday_Fallback(chan) {
     pick = picks[0];
   }
 
+  // TTL USDT
+  if (pick && typeof pick.age_hours === "number" && pick.age_hours > TTL_USDT_HOURS) {
+    pick = null;
+  }
+
   return { pick, foundToday: Boolean(pick), nextBefore: before };
 }
-
 
 // =======================================
 // SECTION 5/6 — Tether Last & Tehran wrapper
@@ -742,7 +935,17 @@ async function scanTetherLast(chan, startBefore) {
       if (val) {
         const dtISO = meta.datetimeISO ? new Date(meta.datetimeISO).toISOString() : null;
         const age = dtISO ? minutesBetween(new Date(), new Date(dtISO)) / 60 : null;
-        return { last: { ...val, id: meta.id ?? 0, link: meta.link || null, time_iso: dtISO, age_hours: age } };
+        const tloc = dtISO ? toTZISO(dtISO, TZ) : null;
+        return {
+          last: {
+            ...val,
+            id: meta.id ?? 0,
+            link: meta.link || null,
+            time_iso: dtISO,
+            time_local: tloc,
+            age_hours: age
+          }
+        };
       }
     }
 
@@ -755,8 +958,12 @@ async function scanTetherLast(chan, startBefore) {
 // Tehran3bze: today + last با parser اختصاصی (buy/sell/mid)
 async function scanTehranTodayAndLast() {
   const resToday = await scanCashTodayGeneric(CH.Dollar_Tehran3bze, extractTehranCash);
-  const resLast  = await scanCashLast(CH.Dollar_Tehran3bze, resToday.nextBefore);
-  return { pick: resToday.pick, foundToday: resToday.foundToday, last: resLast.last };
+  const resLast  = await scanTehranLast(resToday.nextBefore); // ← هم‌اسکیما با today
+  return {
+    pick: resToday.pick,            // { buy, sell, mid, ... }
+    foundToday: resToday.foundToday,
+    last: resLast.last              // { buy, sell, mid, ... }
+  };
 }
 
 // ===================================
@@ -764,20 +971,18 @@ async function scanTehranTodayAndLast() {
 // ===================================
 async function scanBonbast() {
   const URL = CH.Bonbast.URL;
-  const res = await fetch(URL, {
-    headers: {
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
-      accept: "text/html,application/xhtml+xml",
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${URL}`);
-  const html = await res.text();
+  const html = await fetchTextWithRetry(URL);
   const text = htmlToText(html);
 
   // as_of
   let as_of_text = null;
   const mAsOf = text.match(/Iranian Rial Exchange Rates\.\s*([^\n]+?)\s*All prices/i);
   if (mAsOf) as_of_text = mAsOf[1].trim();
+
+  // تلاشی برای تشخیص "Last Update ..." اگر فرمت as_of_text قابل‌پارز نبود
+  let alt_ts = null;
+  const mUpd = text.match(/Last\s*Update[^A-Za-z0-9]*([A-Za-z]+\s+\d{1,2},\s*\d{4}\s+\d{1,2}:\d{2})/i);
+  if (mUpd) alt_ts = mUpd[1];
 
   // USD/EUR rows (Sell / Buy)
   function pickRow(code, name) {
@@ -796,12 +1001,31 @@ async function scanBonbast() {
   const usd = pickRow("USD", "US\\s+Dollar");
   const eur = pickRow("EUR", "Euro");
 
+  // TTL: اگر زمان صفحه قدیمی‌تر از حد مجاز بود، خروجی Bonbast را خالی کن
+  let usdOut = usd || null;
+  let eurOut = eur || null;
+
+  const tryParseDate = (s) => {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d) ? null : d;
+  };
+
+  // اولویت با as_of_text؛ اگر نشد، از Last Update کمکی استفاده کن
+  let asOfDate = tryParseDate(as_of_text) || tryParseDate(alt_ts);
+  if (asOfDate) {
+    const ageH = (Date.now() - asOfDate.getTime()) / 3600000;
+    if (ageH > TTL_BONBAST_HOURS) {
+      usdOut = null;
+      eurOut = null;
+    }
+  }
+
   return {
     source_bonbast: URL,
-    bonbast: { as_of_text, usd: usd || null, eur: eur || null },
+    bonbast: { as_of_text, usd: usdOut, eur: eurOut },
   };
 }
-
 
 // ===================================
 // SECTION 7 — Main & Output
