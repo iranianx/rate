@@ -1,8 +1,8 @@
 {
   "status": "ok",
-  "scraped_at": "2025-08-16T08:39:40.581Z",
+  "scraped_at": "2025-08-16T09:00:01.435Z",
   "sources": [
-    "https://t.me/s/ParsianSarafi"
+    "https://t.me/s/RealRate2000"
   ],
   "ttl_minutes": 60,
   "config": {
@@ -17,22 +17,22 @@
   "counts": {
     "per_source": [
       {
-        "source": "https://t.me/s/ParsianSarafi",
-        "raw_blocks": 0,
-        "candidates": 0,
-        "removed": 0
+        "source": "https://t.me/s/RealRate2000",
+        "raw_blocks": 11,
+        "candidates": 8,
+        "removed": 3
       }
     ],
-    "candidates_all": 0,
+    "candidates_all": 8,
     "deduped": 0,
-    "removed_all": 0
+    "removed_all": 3
   },
   "summary": {
     "used_n": 0,
-    "min": null,
-    "max": null,
-    "median": null,
-    "spread_pct": null,
+    "min": 91203,
+    "max": 93000,
+    "median": 92600,
+    "spread_pct": 1.941,
     "estimate": null,
     "method": null
   },
