@@ -1,3 +1,40 @@
 {
- "removed_examples": []
+  "status": "ok",
+  "scraped_at": "2025-08-16T14:53:26.647Z",
+  "sources": [
+    "https://t.me/s/RealRate2000"
+  ],
+  "ttl_minutes": 60,
+  "config": {
+    "need_min_samples": 5,
+    "trim_frac": 0.2,
+    "pct_spread_max": 1,
+    "soft_guard_pct": 20,
+    "soft_guard_ref_source": "baseline",
+    "soft_guard_ref_value": 90000
+  },
+  "counts": {
+    "per_source": [
+      {
+        "source": "https://t.me/s/RealRate2000",
+        "raw_blocks": 19,
+        "candidates": 7,
+        "removed": 12
+      }
+    ],
+    "candidates_all": 7,
+    "deduped": 0,
+    "removed_all": 12
+  },
+  "summary": {
+    "used_n": 0,
+    "min": 91000,
+    "max": 108000,
+    "median": 91700,
+    "spread_pct": 18.539,
+    "estimate": null,
+    "method": null
+  },
+  "samples_used": [],
+  "removed_examples": []
 }
