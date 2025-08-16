@@ -1,4 +1,4 @@
-name: "Real Rate"
+name: "f1 Real"
 
 on:
   workflow_dispatch: {}
