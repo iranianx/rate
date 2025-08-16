@@ -104,99 +104,119 @@ async function fetchText(url) {
 // ===================================
 // SECTION 4 — Numbers & keyword window
 // ===================================
-const KEYWORDS_SALE = ["فروش","فروشی","میفروشم","می‌فروشم","می فروشم","نقدی"];
-const KEYWORDS_CCY  = ["دلار","USD","$","تتر","USDT"];
+
+// کلمات فروش (بازتر)
+const KEYWORDS_SALE = [
+  "فروش","فروشی","میفروشم","می‌فروشم","می فروشم",
+  "نقدی","نقد","آماده","حضوری" // برای برخی آگهی‌ها
+];
+
+// توکن‌های ارزی: فقط USD/EUR (USDT را عمدی کنار گذاشتیم)
+const CCY_USD = ["دلار","usd","$","دلار آبی","آبی دلار","دلار ابی","ابی"];
+const CCY_EUR = ["یورو","eur","€","يورو"];
+const KEYWORDS_CCY = [...CCY_USD, ...CCY_EUR];
 
 function stripNoiseNumbers(s) {
   const t = faToEnDigits(normalizeFa(s||""));
   let u = t
-    .replace(/\+?98[-\s]?\d{2,3}[-\s]?\d{3}[-\s]?\d{4}/g, " ") // موبایل
-    .replace(/\b0?9\d{9}\b/g, " ")
-    .replace(/\b\d{1,2}\s*[:٫\.]\s*\d{2}\b/g, " ")            // ساعت
-    .replace(/\b\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}\b/g, " ")      // تاریخ
+    // موبایل ایران (+98 یا 09 با فاصله/خط‌تیره اختیاری)
+    .replace(/(?:\+?98[-\s]?)?9[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\b/gi, " ")
+    // ساعت 08:30 یا 8.05 یا 8:05:12
+    .replace(/\b\d{1,2}[:٫\.]\d{2}(?::\d{2})?\b/g, " ")
+    // تاریخ‌های yyyy-mm-dd و yyyy/mm/dd و mm/dd
+    .replace(/\b\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}\b/g, " ")
     .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, " ");
   return u.replace(/\s+/g, " ").trim();
 }
+
+// همه اعداد خام (۲–۶ رقم و الگوی هزارگان و k)
 function parseNumbersFrom(text) {
-  // 92,750 | 92750 | 92.7k | 92k
-  const re = /(\d{1,3}(?:[,\s]\d{3})+|\d{4,6}|(?:\d{2,3}(?:\.\d{1,2})?)\s*[kK])/g;
+  const re = /(\d{1,3}(?:[,\s]\d{3})+|\d{2,6}|(?:\d{2,3}(?:\.\d{1,2})?)\s*[kK])/g;
   const out = [];
   let m;
-  while ((m = re.exec(stripNoiseNumbers(text)))) {
+  const cleaned = stripNoiseNumbers(text);
+  while ((m = re.exec(cleaned))) {
     const raw = m[1].replace(/\s+/g,"");
     if (/[kK]$/.test(raw)) out.push(Number(raw.replace(/[kK]/i,""))*1000);
     else out.push(Number(raw.replace(/[^\d]/g,"")));
   }
   return out;
 }
+
+// آیا متن شامل هر کدام از واژه‌هاست؟
 function hasAny(text, words) {
-  const T = normalizeFa(text);
+  const T = normalizeFa(text || "");
   return words.some(w => T.includes(normalizeFa(w)));
 }
-function valueNearKeywords(fullText) {
+
+// اعداد «تعداد واحد» را که بلافاصله قبل از ارز می‌آیند پیدا کن (برای حذف: 1000 دلار / 90 یورو)
+function findQuantitiesNextToCurrency(win) {
+  const q = [];
+  const w = normalizeFa(faToEnDigits(win));
+  const re = /(\d{1,4})\s*(?:تا\s*)?(?:دلار|یورو|usd|eur|\$|€)\b/gi;
+  let m;
+  while ((m = re.exec(w))) {
+    const n = Number((m[1]||"").replace(/[^\d]/g,""));
+    if (Number.isFinite(n)) q.push(n);
+  }
+  return new Set(q);
+}
+
+// از یک پنجره‌ی کوچک اطراف کلیدواژه، «بهترین قیمت» را طبق قواعد انتخاب کن
+function pickPriceFromWindow(win, guardRef=null) {
+  const qtySet = findQuantitiesNextToCurrency(win);
+  const nums = parseNumbersFrom(win);
+
+  // نگاشت به کاندیدا: ۵–۶ رقمی مستقیم؛ ۲–۳ رقمی ×۱۰۰۰ (قاعده‌ی درخواستی)
+  const cands = [];
+  for (const n of nums) {
+    if (qtySet.has(n)) continue;           // عددِ تعداد واحد
+    if (n >= 10000)         cands.push(n); // 5–6 رقمی، خودش تومان است
+    else if (n >= 10 && n <= 999) cands.push(n * 1000); // 2–3 رقمی → ×۱۰۰۰
+  }
+  if (!cands.length) return null;
+
+  // اگر مرجع داریم، نزدیک‌ترین به مرجع؛ وگرنه بر اساس طول رقم به ۵٫۵ نزدیک‌تر
+  if (Number.isFinite(guardRef)) {
+    cands.sort((a,b) => Math.abs(a-guardRef) - Math.abs(b-guardRef));
+    return cands[0];
+  } else {
+    const score = (x) => Math.abs(String(x).length - 5.5);
+    cands.sort((a,b)=> score(a)-score(b) || b-a);
+    return cands[0];
+  }
+}
+
+// مقدار نزدیک به کلیدواژه‌ها، با امکان استفاده از guardRef
+function valueNearKeywords(fullText, guardRef=null) {
   const raw = faToEnDigits(normalizeFa(fullText||""));
-  const numsAll = parseNumbersFrom(raw);
-  if (!numsAll.length) return null;
+  const keys = KEYWORDS_CCY; // پیرامون همه‌ی توکن‌های ارزی جست‌وجو می‌کنیم
+  let best = null, bestDelta = Infinity;
 
-  // پنجره‌ی ±۶۰ دور هر کلمه‌ی فروش/ارز
-  const keys = [...KEYWORDS_SALE, ...KEYWORDS_CCY];
   for (const w of keys) {
-    const idx = raw.indexOf(normalizeFa(w));
-    if (idx === -1) continue;
-    const lo = Math.max(0, idx - 60), hi = Math.min(raw.length, idx + 60);
-    const winNums = parseNumbersFrom(raw.slice(lo, hi));
-    if (winNums.length) return winNums[0];
+    const k = normalizeFa(w);
+    let idx = raw.indexOf(k);
+    while (idx !== -1) {
+      const lo = Math.max(0, idx - 60), hi = Math.min(raw.length, idx + k.length + 60);
+      const win = fullText.slice(lo, hi);
+      const cand = pickPriceFromWindow(win, guardRef);
+      if (Number.isFinite(cand)) {
+        const d = Number.isFinite(guardRef) ? Math.abs(cand - guardRef) : (Math.abs(String(cand).length - 5.5));
+        if (d < bestDelta) { bestDelta = d; best = cand; }
+      }
+      idx = raw.indexOf(k, idx + k.length);
+    }
   }
-  return numsAll[0];
-}
 
-// ===================================
-// SECTION 5 — Soft guard (±% ref) loader
-// ===================================
-function readJSON(p){ try { return JSON.parse(fs.readFileSync(p, "utf-8")); } catch { return null; } }
-function pickRefFromDaily(j){
-  if (!j || typeof j!=="object") return null;
-  // تلاش‌های مختلف برای یافتن نرخ مرجع دلار
-  if (typeof j.USD_TMN === "number") return j.USD_TMN;
-  if (j.spot && typeof j.spot.USD_TMN === "number") return j.spot.USD_TMN;
-  if (j.outputs && typeof j.outputs.USD_TMN === "number") return j.outputs.USD_TMN;
-  return null;
-}
-function pickRefFromYearly(j){
-  if (!j || typeof j!=="object") return null;
-  // فرض: لیست مقادیر انتهای روز؛ آخرین مقدار
-  const arr = j?.USD_TMN_list || j?.usd_list || j?.list || null;
-  if (Array.isArray(arr) && arr.length) {
-    const last = arr[arr.length-1];
-    if (typeof last === "number") return last;
-    if (last && typeof last.value === "number") return last.value;
-  }
-  return null;
-}
-function pickRefFromBaseline(){
-  const b = readJSON(BASELINE_PATH);
-  const a = b?.USD_TMN?.anchor;
-  return (typeof a === "number" && isFinite(a)) ? a : null;
-}
-function getSoftGuardRef(){
-  if (isFinite(REF_ENV)) return { ref: REF_ENV, source: "env" };
-  const d = readJSON(DAILY_REF);
-  const r1 = pickRefFromDaily(d); if (isFinite(r1)) return { ref: r1, source: "daily" };
-  const y = readJSON(YEARLY_REF);
-  const r2 = pickRefFromYearly(y); if (isFinite(r2)) return { ref: r2, source: "yearly" };
-  const r3 = pickRefFromBaseline(); if (isFinite(r3)) return { ref: r3, source: "baseline" };
-  return { ref: null, source: null };
-}
-function inSoftGuard(n, ref, pct){
-  if (!isFinite(ref) || !isFinite(n)) return true; // اگر مرجع نداریم، قفل نرم غیرفعال
-  const lo = ref * (1 - pct/100), hi = ref * (1 + pct/100);
-  return n >= lo && n <= hi;
+  // fallback کل متن
+  if (!Number.isFinite(best)) best = pickPriceFromWindow(fullText, guardRef);
+  return Number.isFinite(best) ? best : null;
 }
 
 // ===================================
 // SECTION 6 — Scan one source (TTL + guard)
 // ===================================
-async function scanSource(url, guardRef) {
+async function scanSource(url, guardInfo) {
   const html = await fetchText(url);
   const blocks = extractBlocks(html);
 
@@ -212,16 +232,16 @@ async function scanSource(url, guardRef) {
     const text = extractMessageText(b);
     if (!text) { removedCount++; continue; }
 
-    // باید حداقل یکی از کلیدواژه‌های فروش و یکی از ارزی حاضر باشد
-    const okSale = hasAny(text, KEYWORDS_SALE);
+    // الزام فقط «کلیدواژه‌ی ارزی»؛ فعل فروش اختیاری (برای آگهی‌های کوتاه)
     const okCcy  = hasAny(text, KEYWORDS_CCY);
-    if (!(okSale && okCcy)) { removedCount++; continue; }
+    if (!okCcy) { removedCount++; continue; }
 
-    const val = valueNearKeywords(text);
+    // استخراج مقدار با توجه به پنجره‌ی ±۶۰ و قاعده‌ی ×۱۰۰۰ و مرجع
+    const val = valueNearKeywords(text, guardInfo?.ref ?? null);
     if (!isFinite(val)) { removedCount++; continue; }
 
-    // قفل نرم ±٪ نسبت به مرجع
-    if (!inSoftGuard(val, guardRef, SOFT_GUARD_PCT)) {
+    // قفل نرم ±pct
+    if (!inSoftGuard(val, guardInfo?.ref ?? null, guardInfo?.pct ?? null)) {
       removedCount++; 
       continue;
     }
@@ -349,10 +369,10 @@ function buildPayload(perSource, summary, guardInfo){
 // SECTION 9 — Main
 // ===================================
 async function main(){
-  const guardInfo = getSoftGuardRef(); // {ref, source}
+  const guardInfo = getSoftGuardRef(); // { ref, pct, source }
   const results = [];
   for (const url of SOURCES) {
-    try { results.push(await scanSource(url, guardInfo.ref)); }
+    try { results.push(await scanSource(url, guardInfo)); }
     catch(e){ results.push({ source:url, raw_blocks:0, candidates:[], removed:0, error:String(e) }); }
   }
   const all = results.flatMap(r => r.candidates);
@@ -362,4 +382,3 @@ async function main(){
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
 }
-main().catch(e => { console.error(e); process.exit(1); });
