@@ -1,6 +1,6 @@
 {
   "status": "ok",
-  "scraped_at": "2025-08-16T14:53:26.647Z",
+  "scraped_at": "2025-08-16T15:59:19.121Z",
   "sources": [
     "https://t.me/s/RealRate2000"
   ],
@@ -18,20 +18,20 @@
       {
         "source": "https://t.me/s/RealRate2000",
         "raw_blocks": 19,
-        "candidates": 7,
-        "removed": 12
+        "candidates": 0,
+        "removed": 19
       }
     ],
-    "candidates_all": 7,
+    "candidates_all": 0,
     "deduped": 0,
-    "removed_all": 12
+    "removed_all": 19
   },
   "summary": {
     "used_n": 0,
-    "min": 91000,
-    "max": 108000,
-    "median": 91700,
-    "spread_pct": 18.539,
+    "min": null,
+    "max": null,
+    "median": null,
+    "spread_pct": null,
     "estimate": null,
     "method": null
   },
