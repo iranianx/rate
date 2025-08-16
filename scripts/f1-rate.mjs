@@ -399,66 +399,45 @@ function extractTehranCash(fullText) {
   return { buy: buy || null, sell: sell || null, mid, unit: "تومان", raw_line: fullText };
 }
 
-// — TETHER: خرید/فروش/یا «نرخ تتر …»
-function extractTether(fullText) {
-  const norm = normalizeFa(fullText);
-  const t = faToEnDigits(norm);
-
-  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
-  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
-  const rateM = t.match(/نرخ\s*تتر[^0-9]*([0-9][0-9.,\s]*)/i) || t.match(/تتر\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
-
-  const sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
-  const buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
-
-  let mid = null;
-  if (sell && buy) mid = Math.round((sell + buy) / 2);
-  else if (sell) mid = sell;
-  else if (buy)  mid = buy;
-  else if (rateM) mid = Number((rateM[1] || "").replace(/[^\d]/g, ""));
-
-  if (!sell && !buy && !rateM) return null;
-  if (mid && !plausible("USDT", mid)) return null;
-
-  return { sell: sell || null, buy: buy || null, mid: mid || null, unit: "تومان", raw_line: fullText };
-}
-
 // =======================================
 // SECTION 4.2 — TETHER parser (buy/sell normalization)
 // =======================================
 
 function extractTether(fullText) {
-  const norm = normalizeFa(fullText);
-  const t = faToEnDigits(norm);
+  // نرمال‌سازی: اعداد لاتین + یکنواخت‌سازی فاصله و حروف
+  const t = faToEnDigits(normalizeFa(fullText || ""));
 
-  // اولین "فروش:" و "خرید:" در متن (معمولاً مربوط به USDT در صدر پست است)
-  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
-  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  // الگوهای استخراج
+  const mBuy   = t.match(/(?:^|\s)خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const mSell  = t.match(/(?:^|\s)فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const mRate  = t.match(/نرخ\s*تتر[^0-9]*([0-9][0-9.,\s]*)/i) || t.match(/(?:^|\s)تتر\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
 
-  // برخی پست‌ها به‌جای buy/sell، فقط «نرخ تتر: …» دارند
-  const rateM = t.match(/نرخ\s*تتر[^0-9]*([0-9][0-9.,\s]*)/i) || t.match(/تتر\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const asNum = (m) => (m ? Number((m[1] || "").replace(/[^\d]/g, "")) : null);
 
-  let sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
-  let buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
+  let buy  = asNum(mBuy);
+  let sell = asNum(mSell);
 
-  // ✅ نرمال‌سازی: اگر هر دو وجود دارند، اطمینان بده "sell ≥ buy"
+  // اگر هر دو هست و فروش کوچکتر از خرید است، جابجا کن (خطای کانال)
   if (sell != null && buy != null && sell < buy) {
     const tmp = sell; sell = buy; buy = tmp;
   }
 
   // محاسبهٔ mid
   let mid = null;
-  if (sell != null && buy != null) {
-    mid = Math.round((sell + buy) / 2);
-  } else if (sell != null || buy != null) {
-    mid = sell != null ? sell : buy;
-  } else if (rateM) {
-    mid = Number((rateM[1] || "").replace(/[^\d]/g, ""));
+  if (sell != null && buy != null) mid = Math.round((sell + buy) / 2);
+  else if (sell != null)          mid = sell;
+  else if (buy  != null)          mid = buy;
+
+  // اگر buy/sell پیدا نشد، از «نرخ تتر/تتر: …» استفاده کن
+  if (mid == null && mRate) {
+    mid = asNum(mRate);
   }
 
-  // اگر هیچ عددی درنیامد، یا خارج از بازهٔ منطقی بود، رد کن
+  // هیچ عددی پیدا نشده؟
   if (sell == null && buy == null && mid == null) return null;
-  if (mid && !plausible("USDT", mid)) return null;
+
+  // چک بازهٔ منطقی USDT
+  if (mid != null && !plausible("USDT", mid)) return null;
 
   return {
     sell: sell ?? null,
