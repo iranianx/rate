@@ -109,18 +109,18 @@ async function fetchText(url) {
 // SECTION 4 — Numbers & keyword window
 // ===================================
 
-// کلمات فروش (بازتر)
+// کلمات فروش (در این اسکریپت الزامی نیست ولی می‌ماند)
 const KEYWORDS_SALE = [
   "فروش","فروشی","میفروشم","می‌فروشم","می فروشم",
   "نقدی","نقد","آماده","حضوری"
 ];
 
-// توکن‌های ارزی: USD و EUR جداگانه
+// توکن‌های ارزی جدا
 const CCY_USD = ["دلار","usd","$","دلار آبی","آبی دلار","دلار ابی","ابی"];
 const CCY_EUR = ["یورو","eur","€","يورو"];
 const KEYWORDS_CCY = [...CCY_USD, ...CCY_EUR];
 
-// حذف نویزهای عددی رایج (موبایل/ساعت/تاریخ)
+// ——— نویزهای عددی رایج را حذف کن (موبایل/ساعت/تاریخ) ———
 function stripNoiseNumbers(s) {
   const t = faToEnDigits(normalizeFa(s||""));
   let u = t
@@ -148,12 +148,13 @@ function parseNumbersFrom(text) {
   return out;
 }
 
-function hasAny(text, words) {
+// چک وجود هر کلیدواژه (برای پرهیز از تداخل با نسخه‌های قبلی، نام متفاوت است)
+const hasAnyKW = (text, words) => {
   const T = normalizeFa(text || "");
   return words.some(w => T.includes(normalizeFa(w)));
-}
+};
 
-// اعدادِ «تعداد واحد» کنار ارز (برای حذف از قیمت)
+// اعداد «تعداد واحد» کنار ارز (برای حذف از قیمت: 1000 دلار، 90 یورو)
 function findQuantitiesNextToCurrency(win) {
   const q = [];
   const w = normalizeFa(faToEnDigits(win || ""));
@@ -166,7 +167,7 @@ function findQuantitiesNextToCurrency(win) {
   return new Set(q);
 }
 
-// تشخیص زوج USD/EUR با نسبت جهانی
+// تلاش برای تشخیص زوج USD/EUR با نسبت جهانی
 function disambiguateUsdEur(nums) {
   if (!Array.isArray(nums) || nums.length < 2) return null;
   const a = Array.from(new Set(nums)).sort((x,y)=>x-y);
@@ -184,43 +185,42 @@ function disambiguateUsdEur(nums) {
   return null;
 }
 
-// از یک پنجره‌ی کوچک اطراف کلیدواژه، «بهترین قیمت دلار» را انتخاب کن
-function pickPriceFromWindow(win, guardRef = null) {
+// انتخاب «بهترین قیمت» از پنجره—با مرجع اختیاری (برای EUR، مرجع ≈ USD*ratio)
+function pickBestPriceFromWindow(win, guardRef = null) {
   const qtySet = findQuantitiesNextToCurrency(win);
   const rawNums = parseNumbersFrom(win);
 
   // نگاشت به کاندیدا: ۵–۶ رقمی مستقیم؛ ۲–۳ رقمی ×۱۰۰۰
   const cands = [];
   for (const n of rawNums) {
-    if (qtySet.has(n)) continue;            // عددِ تعداد واحد
-    if (n >= 10000)              cands.push(n);
+    if (qtySet.has(n)) continue;            // عدد تعداد
+    if (n >= 10000)               cands.push(n);
     else if (n >= 10 && n <= 999) cands.push(n * 1000);
   }
   if (!cands.length) return null;
 
-  // 1) تلاش برای زوج USD/EUR
-  if (cands.length >= 2) {
-    const duo = disambiguateUsdEur(cands);
-    if (duo?.usd) return duo.usd; // خروجی این اسکریپت دلار است
-  }
-
-  // 2) اگر مرجع داریم، نزدیک‌ترین به مرجع
   if (Number.isFinite(guardRef)) {
     cands.sort((a,b)=> Math.abs(a-guardRef) - Math.abs(b-guardRef));
     return cands[0];
   }
-
-  // 3) در نهایت قاعدهٔ طول رقم (۵.۵ رقمی نزدیک‌تر)
+  // قاعده طول رقم (۵.۵ رقمی)
   const score = (x) => Math.abs(String(x).length - 5.5);
   cands.sort((a,b)=> score(a) - score(b) || b - a);
   return cands[0];
 }
 
-// مقدار دلار نزدیک به کلیدواژه‌ها، با پشتیبانی از نسبت EUR/USD
-function valueNearKeywords(fullText, guardRef = null) {
+/**
+ * extractUsdEurFromText:
+ * - در اطراف کلیدواژه‌های USD و EUR به‌صورت جدا می‌گردد
+ * - اگر هر دو عدد در متن باشد و نسبت جهانی را رعایت کنند، همان زوج برگردانده می‌شود
+ * - خروجی: { usd: number|null, eur: number|null }
+ */
+function extractUsdEurFromText(fullText, guardUsdRef = null) {
   const raw = faToEnDigits(normalizeFa(fullText || ""));
 
-  // 1) پنجره‌های اطراف توکن‌های USD
+  let usd = null, eur = null;
+
+  // 1) تلاش موضعی: اطراف نشانه‌های USD
   for (const w of CCY_USD) {
     const key = normalizeFa(w);
     let idx = raw.indexOf(key);
@@ -228,27 +228,49 @@ function valueNearKeywords(fullText, guardRef = null) {
       const lo = Math.max(0, idx - 60);
       const hi = Math.min(raw.length, idx + key.length + 60);
       const win = fullText.slice(lo, hi);
-      const cand = pickPriceFromWindow(win, guardRef);
-      if (Number.isFinite(cand)) return cand;
+      const cand = pickBestPriceFromWindow(win, guardUsdRef);
+      if (Number.isFinite(cand)) { usd = cand; break; }
       idx = raw.indexOf(key, idx + key.length);
     }
+    if (usd != null) break;
   }
 
-  // 2) اگر نشانهٔ EUR هم هست و چند عدد داریم، زوج USD/EUR را حدس بزن
-  if (hasAny(raw, CCY_EUR)) {
+  // 2) تلاش موضعی: اطراف نشانه‌های EUR (مرجع ≈ USD*ratio اگر USD داریم یا guardUsdRef داریم)
+  const guardEurRef = Number.isFinite(guardUsdRef) ? guardUsdRef * EURUSD_RATIO : (Number.isFinite(usd) ? usd * EURUSD_RATIO : null);
+  for (const w of CCY_EUR) {
+    const key = normalizeFa(w);
+    let idx = raw.indexOf(key);
+    while (idx !== -1) {
+      const lo = Math.max(0, idx - 60);
+      const hi = Math.min(raw.length, idx + key.length + 60);
+      const win = fullText.slice(lo, hi);
+      const cand = pickBestPriceFromWindow(win, guardEurRef);
+      if (Number.isFinite(cand)) { eur = cand; break; }
+      idx = raw.indexOf(key, idx + key.length);
+    }
+    if (eur != null) break;
+  }
+
+  // 3) اگر هر دو نشانه در متن هستند و چند عدد داریم → زوج‌سازی با نسبت جهانی
+  if (hasAnyKW(raw, CCY_USD) && hasAnyKW(raw, CCY_EUR)) {
     const qtySet = findQuantitiesNextToCurrency(fullText);
     const allNums = parseNumbersFrom(fullText)
       .map(n => (n >= 10000 ? n : (n>=10 && n<=999 ? n*1000 : NaN)))
       .filter(n => Number.isFinite(n) && !qtySet.has(n));
     if (allNums.length >= 2) {
       const duo = disambiguateUsdEur(allNums);
-      if (duo?.usd) return duo.usd;
+      if (duo) {
+        usd = usd ?? duo.usd;
+        eur = eur ?? duo.eur;
+      }
     }
   }
 
-  // 3) fallback: کل متن
-  const fallback = pickPriceFromWindow(fullText, guardRef);
-  return Number.isFinite(fallback) ? fallback : null;
+  // 4) fallback کلی برای هر کدام که خالی مانده
+  if (usd == null) usd = pickBestPriceFromWindow(fullText, guardUsdRef);
+  if (eur == null && Number.isFinite(guardEurRef)) eur = pickBestPriceFromWindow(fullText, guardEurRef);
+
+  return { usd: Number.isFinite(usd) ? usd : null, eur: Number.isFinite(eur) ? eur : null };
 }
 
 // ===================================
@@ -307,47 +329,70 @@ async function scanSource(url, guardInfo) {
   const html = await fetchText(url);
   const blocks = extractBlocks(html);
 
-  const candidates = [];
+  const candidates = []; // هر آیتم: { currency: 'USD'|'EUR', value, ... }
   let removedCount = 0;
-  const removedBreakdown = { no_time:0, old:0, no_text:0, no_ccy:0, no_val:0, guard:0 };
+
+  const guardUsd = guardInfo?.ref ?? null;
+  const guardPct = guardInfo?.pct ?? SOFT_GUARD_PCT;
+  const guardEur = Number.isFinite(guardUsd) ? guardUsd * EURUSD_RATIO : null;
 
   for (const b of blocks) {
     const meta = extractMessageMeta(b);
-    if (!meta?.time_iso) { removedBreakdown.no_time++; removedCount++; continue; }
+    if (!meta?.time_iso) { removedCount++; continue; }
     const ageMin = minutesAgo(meta.time_iso);
-    if (ageMin > TTL_MINUTES) { removedBreakdown.old++; removedCount++; continue; }
+    if (ageMin > TTL_MINUTES) { removedCount++; continue; }
 
     const text = extractMessageText(b);
-    if (!text) { removedBreakdown.no_text++; removedCount++; continue; }
+    if (!text) { removedCount++; continue; }
 
-    const hasCcy = hasAny(text, KEYWORDS_CCY);
-    if (!hasCcy) { removedBreakdown.no_ccy++; removedCount++; continue; }
+    // الزام: نشانهٔ ارزی (USD/EUR) وجود داشته باشد
+    if (!hasAnyKW(text, KEYWORDS_CCY)) { removedCount++; continue; }
 
-    const val = valueNearKeywords(text, guardInfo?.ref ?? null);
-    if (!isFinite(val)) { removedBreakdown.no_val++; removedCount++; continue; }
+    // استخراج هر دو ارز (یورو حذف نمی‌شود)
+    const { usd, eur } = extractUsdEurFromText(text, guardUsd);
 
-    if (!inSoftGuard(val, guardInfo?.ref ?? null, guardInfo?.pct ?? null)) {
-      removedBreakdown.guard++; removedCount++; continue;
+    // USD
+    if (Number.isFinite(usd)) {
+      if (inSoftGuard(usd, guardUsd, guardPct)) {
+        candidates.push({
+          source: url,
+          currency: "USD",
+          id: meta.id || 0,
+          link: meta.link || null,
+          time_iso: meta.time_iso,
+          time_local: meta.time_local,
+          age_minutes: +ageMin.toFixed(1),
+          value: usd,
+          sample: text.slice(0, 200)
+        });
+      } else removedCount++;
     }
 
-    candidates.push({
-      source: url,
-      id: meta.id || 0,
-      link: meta.link || null,
-      time_iso: meta.time_iso,
-      time_local: meta.time_local,
-      age_minutes: +ageMin.toFixed(1),
-      value: val,
-      sample: text.slice(0, 200)
-    });
+    // EUR (قفل نرم حول guardEur اگر داریم)
+    if (Number.isFinite(eur)) {
+      if (inSoftGuard(eur, guardEur, guardPct)) {
+        candidates.push({
+          source: url,
+          currency: "EUR",
+          id: meta.id || 0,
+          link: meta.link || null,
+          time_iso: meta.time_iso,
+          time_local: meta.time_local,
+          age_minutes: +ageMin.toFixed(1),
+          value: eur,
+          sample: text.slice(0, 200)
+        });
+      } else removedCount++;
+    }
+
+    if (!Number.isFinite(usd) && !Number.isFinite(eur)) removedCount++;
   }
 
   return {
     source: url,
     raw_blocks: blocks.length,
     candidates,
-    removed: removedCount,
-    removed_breakdown: removedBreakdown   // 👈 در خروجی شمارش علت‌ها را ببین
+    removed: removedCount
   };
 }
 
@@ -380,10 +425,20 @@ function trimmedMedian(values, trimFrac){
 // ===================================
 // SECTION 8 — Summarize & payload build
 // ===================================
-function summarize(allCandidates){
-  const dedup = dedupBySourceId(allCandidates);
-  const vals  = dedup.map(x=>x.value);
-  const n     = vals.length;
+function summarizeByCcy(allCandidates, ccy){
+  // dedup بر اساس source#id#ccy
+  const seen = new Set();
+  const filtered = [];
+  for (const x of allCandidates) {
+    if (x.currency !== ccy) continue;
+    const key = `${x.source}#${x.id}#${ccy}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    filtered.push(x);
+  }
+
+  const vals = filtered.map(x=>x.value);
+  const n = vals.length;
 
   if (n === 0) {
     return { used:[], min:null,max:null,median:null,spread:null,estimate:null,method:null };
@@ -397,7 +452,7 @@ function summarize(allCandidates){
     const { med:tm, trimmedCount } = trimmedMedian(vals, TRIM_FRAC);
     estimate = Math.round(tm ?? med);
     method   = trimmedCount > 0 ? "trimmed_median" : "median";
-    used     = dedup.slice().sort((a,b)=>a.value-b.value);
+    used     = filtered.slice().sort((a,b)=>a.value-b.value);
   }
   return {
     used, min:minV, max:maxV, median:med,
@@ -405,18 +460,28 @@ function summarize(allCandidates){
     estimate, method
   };
 }
-function buildPayload(perSource, summary, guardInfo){
-  const perSrcCounts = perSource.map(r => ({
-    source: r.source,
-    raw_blocks: r.raw_blocks,
-    candidates: r.candidates.length,
-    removed: r.removed
-  }));
-  const samples_used = (summary.used || []).map(x => ({
-    source: x.source, id: x.id, link: x.link,
+
+function buildPayload(perSource, summaryUSD, summaryEUR, guardInfo){
+  const perSrcCounts = perSource.map(r => {
+    const usdCnt = r.candidates.filter(c=>c.currency==="USD").length;
+    const eurCnt = r.candidates.filter(c=>c.currency==="EUR").length;
+    return {
+      source: r.source,
+      raw_blocks: r.raw_blocks,
+      candidates: usdCnt + eurCnt,
+      removed: r.removed,
+      candidates_usd: usdCnt,
+      candidates_eur: eurCnt
+    };
+  });
+
+  const toSamples = (summary) => (summary.used || []).map(x => ({
+    source: x.source, id: x.id, link: x.link, currency: x.currency,
     time_iso: x.time_iso, time_local: x.time_local,
     age_minutes: x.age_minutes, value: x.value, sample: x.sample
   }));
+
+  // برای عقب‌سازگاری: فیلد قدیمی summary را = USD می‌گذاریم
   return {
     status: "ok",
     scraped_at: toISO(now()),
@@ -426,27 +491,56 @@ function buildPayload(perSource, summary, guardInfo){
       need_min_samples: NEED_MIN_SAMPLES,
       trim_frac: TRIM_FRAC,
       pct_spread_max: PCT_SPREAD_MAX,
-      soft_guard_pct: SOFT_GUARD_PCT,
+      soft_guard_pct: guardInfo.pct ?? SOFT_GUARD_PCT,
       soft_guard_ref_source: guardInfo.source,
       soft_guard_ref_value: guardInfo.ref
     },
     counts: {
       per_source: perSrcCounts,
       candidates_all: perSource.reduce((a,b)=>a+b.candidates.length,0),
-      deduped: (new Set((summary.used||[]).map(u=>`${u.source}#${u.id}`))).size,
-      removed_all: perSource.reduce((a,b)=>a+b.removed,0)
+      deduped: 0, // dedup داخل summarizeByCcy انجام شد
+      removed_all: perSource.reduce((a,b)=>a+b.removed,0),
+      by_currency: {
+        USD: perSrcCounts.reduce((a,b)=>a+(b.candidates_usd||0),0),
+        EUR: perSrcCounts.reduce((a,b)=>a+(b.candidates_eur||0),0),
+      }
     },
+
+    // عقب‌سازگار
     summary: {
-      used_n: summary.used.length,
-      min: summary.min ?? null,
-      max: summary.max ?? null,
-      median: summary.median ?? null,
-      spread_pct: summary.spread ?? null,
-      estimate: summary.estimate ?? null,
-      method: summary.method ?? null
+      used_n: (summaryUSD.used||[]).length,
+      min: summaryUSD.min ?? null,
+      max: summaryUSD.max ?? null,
+      median: summaryUSD.median ?? null,
+      spread_pct: summaryUSD.spread ?? null,
+      estimate: summaryUSD.estimate ?? null,
+      method: summaryUSD.method ?? null
     },
-    samples_used,
-    removed_examples: [] // در صورت نیاز می‌توان چند نمونه‌ی حذف‌شده را لاگ کرد
+
+    // جدید: جدا برای هر ارز
+    summary_usd: {
+      used_n: (summaryUSD.used||[]).length,
+      min: summaryUSD.min ?? null,
+      max: summaryUSD.max ?? null,
+      median: summaryUSD.median ?? null,
+      spread_pct: summaryUSD.spread ?? null,
+      estimate: summaryUSD.estimate ?? null,
+      method: summaryUSD.method ?? null
+    },
+    summary_eur: {
+      used_n: (summaryEUR.used||[]).length,
+      min: summaryEUR.min ?? null,
+      max: summaryEUR.max ?? null,
+      median: summaryEUR.median ?? null,
+      spread_pct: summaryEUR.spread ?? null,
+      estimate: summaryEUR.estimate ?? null,
+      method: summaryEUR.method ?? null
+    },
+
+    samples_used_usd: toSamples(summaryUSD),
+    samples_used_eur: toSamples(summaryEUR),
+
+    removed_examples: []
   };
 }
 
@@ -460,11 +554,14 @@ async function main(){
     try { results.push(await scanSource(url, guardInfo)); }
     catch(e){ results.push({ source:url, raw_blocks:0, candidates:[], removed:0, error:String(e) }); }
   }
-  const all = results.flatMap(r => r.candidates);
-  const sum = summarize(all);
+    const all = results.flatMap(r => r.candidates);
+
+  // خلاصه جداگانه
+  const sumUSD = summarizeByCcy(all, "USD");
+  const sumEUR = summarizeByCcy(all, "EUR");
 
   // ... داخل main درست قبل از writeFileSync
-  const payload = buildPayload(results, sum, guardInfo);
+   const payload = buildPayload(results, sumUSD, sumEUR, guardInfo);
   console.log("Writing:", OUTFILE);           // 👈 لاگ اضافه شد
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
