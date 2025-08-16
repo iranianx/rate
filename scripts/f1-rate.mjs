@@ -406,8 +406,9 @@ function extractTehranCash(fullText) {
   const norm = normalizeFa(fullText);
   const t = faToEnDigits(norm);
 
-  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
-  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  // پشتیبانی از هر دو ترتیب:
+  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i) || t.match(/([0-9][0-9.,\s]*)\s*خرید/i);
+  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i) || t.match(/([0-9][0-9.,\s]*)\s*فروش/i);
 
   const buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
   const sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
@@ -569,11 +570,8 @@ async function scanCashTodayGeneric(chan, parseFn) {
   if (candidates.length) {
     candidates.sort((a, b) => b.id - a.id);
     const newest = candidates[0];
-    if (!pick) pick = newest;
-    else {
-      const gap = minutesBetween(new Date(newest.time_iso || now), new Date(pick.time_iso || now));
-      if (gap >= MIN_GAP_MINUTES_FOR_DOUBLECHECK) pick = newest;
-    }
+    // بازار نقدی لحظه‌ای: همیشه آخرین پیام امروز ملاک است
+    pick = newest;
   }
 
   // TTL برای today (USD/نقدی)
