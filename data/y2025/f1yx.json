@@ -1,0 +1,32 @@
+{
+  "version": "v1",
+  "tz": "Europe/Istanbul",
+  "year": 2025,
+  "meta": {
+    "band_pct": 20,
+    "close_time": "23:00",
+    "symbols": ["USD","USDT","EUR","GBP","CAD","AUD","RUB","AED","KWD","IQD","SAR","TRY","GEL","AZN","AMD","JPY","CNY","AFN"]
+  },
+  "prev_close": {
+    "date": null,
+    "values": {
+      "USD": null, "USDT": null, "EUR": null, "GBP": null, "CAD": null, "AUD": null, "RUB": null,
+      "AED": null, "KWD": null, "IQD": null, "SAR": null, "TRY": null, "GEL": null, "AZN": null,
+      "AMD": null, "JPY": null, "CNY": null, "AFN": null
+    }
+  },
+  "days": [
+    /* هر روزی که نهایی شد به این آرایه push می‌شود:
+    {
+      "date": "2025-08-16",
+      "close_time": "23:00",
+      "items": [
+        { "code": "USD",  "value": 93200, "rule": "USD",  "delta": -0.4, "trend": "down", "notes": "" },
+        { "code": "USDT", "value": 92850, "rule": "USDT", "delta": -0.2, "trend": "flat", "notes": "" },
+        ...
+      ]
+    }
+    */
+  ],
+  "updated_at": null
+}
