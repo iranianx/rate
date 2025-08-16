@@ -1,0 +1,41 @@
+{
+  "status": "ok",
+  "scraped_at": "2025-08-16T08:39:40.581Z",
+  "sources": [
+    "https://t.me/s/ParsianSarafi"
+  ],
+  "ttl_minutes": 60,
+  "config": {
+    "need_min_samples": 5,
+    "trim_frac": 0.2,
+    "pct_spread_max": 1,
+    "plausible": {
+      "min": 80000,
+      "max": 130000
+    }
+  },
+  "counts": {
+    "per_source": [
+      {
+        "source": "https://t.me/s/ParsianSarafi",
+        "raw_blocks": 0,
+        "candidates": 0,
+        "removed": 0
+      }
+    ],
+    "candidates_all": 0,
+    "deduped": 0,
+    "removed_all": 0
+  },
+  "summary": {
+    "used_n": 0,
+    "min": null,
+    "max": null,
+    "median": null,
+    "spread_pct": null,
+    "estimate": null,
+    "method": null
+  },
+  "samples_used": [],
+  "removed_examples": []
+}
