@@ -1,4 +1,4 @@
-name: "RealRate: crowd sell-rate (Telegram)"
+name: "RealRate"
 
 on:
   workflow_dispatch: {}
