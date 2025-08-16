@@ -1,0 +1,63 @@
+name: "RealRate: crowd sell-rate (Telegram)"
+
+on:
+  workflow_dispatch: {}
+  # schedule:
+  #   - cron: "*/15 * * * *"   # هر ۱۵ دقیقه (اختیاری)
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Istanbul
+
+      # منابع (کاما-جدا). فقط اضافه کن:
+      # REALRATE_SOURCES: "https://t.me/ParsianSarafi,https://t.me/AnotherGroup"
+      REALRATE_SOURCES: "https://t.me/ParsianSarafi"
+
+      REALRATE_TTL_MIN: "60"
+      REALRATE_MIN_N: "5"
+      REALRATE_TRIM_FRAC: "0.2"
+      REALRATE_SPREAD_MAX: "1.0"
+      REALRATE_MIN: "80000"
+      REALRATE_MAX: "130000"
+      REALRATE_TIMEOUT_MS: "20000"
+      REALRATE_RETRIES: "2"
+      DEBUG: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run realrate
+        run: node scripts/realrate.mjs
+
+      - name: Show result
+        run: |
+          echo "Result file: data/realrate.json"
+          cat data/realrate.json || true
+
+      - name: Commit & push if changed
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+          if [[ -n "$(git status --porcelain data/realrate.json)" ]]; then
+            git add data/realrate.json
+            git commit -m "chore(realrate): update crowd sell-rate estimate"
+            git push
+          else
+            echo "No changes to commit."
+          fi
