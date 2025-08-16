@@ -1,6 +1,6 @@
 {
   "status": "ok",
-  "scraped_at": "2025-08-16T16:14:16.621Z",
+  "scraped_at": "2025-08-16T16:43:47.279Z",
   "sources": [
     "https://t.me/s/RealRate2000"
   ],
@@ -18,13 +18,19 @@
       {
         "source": "https://t.me/s/RealRate2000",
         "raw_blocks": 20,
-        "candidates": 6,
-        "removed": 14
+        "candidates": 12,
+        "removed": 14,
+        "candidates_usd": 6,
+        "candidates_eur": 6
       }
     ],
-    "candidates_all": 6,
+    "candidates_all": 12,
     "deduped": 0,
-    "removed_all": 14
+    "removed_all": 14,
+    "by_currency": {
+      "USD": 6,
+      "EUR": 6
+    }
   },
   "summary": {
     "used_n": 0,
@@ -35,6 +41,25 @@
     "estimate": null,
     "method": null
   },
-  "samples_used": [],
+  "summary_usd": {
+    "used_n": 0,
+    "min": 91600,
+    "max": 107000,
+    "median": 92000,
+    "spread_pct": 16.739,
+    "estimate": null,
+    "method": null
+  },
+  "summary_eur": {
+    "used_n": 0,
+    "min": 91600,
+    "max": 107000,
+    "median": 92000,
+    "spread_pct": 16.739,
+    "estimate": null,
+    "method": null
+  },
+  "samples_used_usd": [],
+  "samples_used_eur": [],
   "removed_examples": []
 }
