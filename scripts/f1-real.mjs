@@ -214,6 +214,55 @@ function valueNearKeywords(fullText, guardRef=null) {
 }
 
 // ===================================
+// SECTION 5 — Soft guard (±% ref) loader
+// ===================================
+function readJSON(p){ try { return JSON.parse(fs.readFileSync(p, "utf-8")); } catch { return null; } }
+
+// از فایل مدیریت روزانه (ساختار جدید):
+// {
+//   "meta": { ... , "spread_pct_window": 7 },
+//   "ref": { "usd_cash": 92000, "eur_cash": 108500, "usdt_mid": 91900 }
+// }
+function pickFromDailyManage(j){
+  if (!j || typeof j!=="object") return { ref:null, pct:null };
+  const pct = Number(j?.meta?.spread_pct_window);
+  const ref = Number(j?.ref?.usd_cash);
+  return {
+    ref: Number.isFinite(ref) ? ref : null,
+    pct: Number.isFinite(pct) ? pct : null
+  };
+}
+
+// نسخه‌های قدیمی/جایگزین
+function pickRefFromBaseline(){
+  const b = readJSON(BASELINE_PATH);
+  const a = b?.USD_TMN?.anchor;
+  return (typeof a === "number" && isFinite(a)) ? a : null;
+}
+
+function getSoftGuardRef(){
+  // ۱) فایل روزانه جدید
+  const d = readJSON(DAILY_REF);
+  const dm = pickFromDailyManage(d);
+  if (Number.isFinite(dm.ref)) {
+    return { ref: dm.ref, pct: Number.isFinite(dm.pct) ? dm.pct : SOFT_GUARD_PCT, source: "daily_manage" };
+  }
+  // ۲) ENV (مرجع دستی)
+  if (isFinite(REF_ENV)) return { ref: REF_ENV, pct: SOFT_GUARD_PCT, source: "env" };
+  // ۳) baseline قدیمی
+  const r3 = pickRefFromBaseline(); 
+  if (isFinite(r3)) return { ref: r3, pct: SOFT_GUARD_PCT, source: "baseline" };
+  // ۴) بدون مرجع → قفل نرم غیرفعال (ولی pct را نگه می‌داریم برای گزارش)
+  return { ref: null, pct: SOFT_GUARD_PCT, source: null };
+}
+
+function inSoftGuard(n, ref, pct){
+  if (!isFinite(ref) || !isFinite(n) || !isFinite(pct)) return true; // بدون مرجع/درصد: عبور
+  const lo = ref * (1 - pct/100), hi = ref * (1 + pct/100);
+  return n >= lo && n <= hi;
+}
+
+// ===================================
 // SECTION 6 — Scan one source (TTL + guard)
 // ===================================
 async function scanSource(url, guardInfo) {
