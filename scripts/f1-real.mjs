@@ -24,6 +24,10 @@ const SOFT_GUARD_PCT    = Number(process.env.REALRATE_GUARD_PCT  || 20);    // �
 const FETCH_TIMEOUT_MS  = Number(process.env.REALRATE_TIMEOUT_MS || 20000); // timeout شبکه
 const REF_ENV           = Number(process.env.REALRATE_REF || NaN);          // مرجع دستی (اختیاری)
 
+// ⬇️ جدید: نسبت جهانی EUR/USD و تلورانس درصدی
+const EURUSD_RATIO      = Number(process.env.REALRATE_EURUSD || 1.18);      // نسبت جهانی EUR/USD (مثلاً ~1.18)
+const RATIO_TOLERANCE_P = Number(process.env.REALRATE_RATIO_TOL_PCT || 7);  // تلورانس ±٪ برای نسبت
+
 // مسیرهای مرجع برای قفل نرم
 const BASELINE_PATH = path.join(ROOT, "baseline.json");            // { USD_TMN:{anchor,...} }
 const DAILY_REF     = path.join("data", "daily", "f1dx-manage.json");
@@ -111,11 +115,32 @@ const KEYWORDS_SALE = [
   "نقدی","نقد","آماده","حضوری"
 ];
 
-// توکن‌های ارزی: فقط USD/EUR (USDT عمداً کنار گذاشته شده)
+// توکن‌های ارزی: USD و EUR جداگانه
 const CCY_USD = ["دلار","usd","$","دلار آبی","آبی دلار","دلار ابی","ابی"];
 const CCY_EUR = ["یورو","eur","€","يورو"];
 const KEYWORDS_CCY = [...CCY_USD, ...CCY_EUR];
 
+function htmlToText(html) {
+  return String(html)
+    .replace(/<\s*br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+}
+function normalizeFa(s) {
+  return String(s || "")
+    .replace(/\u200c/g, " ").replace(/\u0640/g, "")
+    .replace(/[\u064B-\u0652]/g, " ")
+    .replace(/ي/g, "ی").replace(/ك/g, "ک")
+    .replace(/\s+/g, " ").trim();
+}
+function faToEnDigits(str) {
+  const map = {"۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
+               "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9",
+               "٫":".","٬":",","،":","};
+  return String(str||"").replace(/[۰-۹٠-٩٫٬،]/g, ch => map[ch] ?? ch);
+}
+
+// حذف نویزهای عددی رایج (موبایل/ساعت/تاریخ)
 function stripNoiseNumbers(s) {
   const t = faToEnDigits(normalizeFa(s||""));
   let u = t
@@ -129,7 +154,7 @@ function stripNoiseNumbers(s) {
   return u.replace(/\s+/g, " ").trim();
 }
 
-// همه اعداد خام (۲–۶ رقم و الگوی هزارگان و k)
+// اعداد خام: هزارگان/۵–۶ رقمی یا ۲–۳ رقمی ×۱۰۰۰ (k هم پشتیبانی می‌شود)
 function parseNumbersFrom(text) {
   const re = /(\d{1,3}(?:[,\s]\d{3})+|\d{2,6}|(?:\d{2,3}(?:\.\d{1,2})?)\s*[kK])/g;
   const out = [];
@@ -143,16 +168,15 @@ function parseNumbersFrom(text) {
   return out;
 }
 
-// آیا متن شامل هر کدام از واژه‌هاست؟
 function hasAny(text, words) {
   const T = normalizeFa(text || "");
   return words.some(w => T.includes(normalizeFa(w)));
 }
 
-// اعداد «تعداد واحد» که بلافاصله قبل از ارز می‌آیند (برای حذف: 1000 دلار / 90 یورو)
+// اعدادِ «تعداد واحد» کنار ارز (برای حذف از قیمت)
 function findQuantitiesNextToCurrency(win) {
   const q = [];
-  const w = normalizeFa(faToEnDigits(win));
+  const w = normalizeFa(faToEnDigits(win || ""));
   const re = /(\d{1,4})\s*(?:تا\s*)?(?:دلار|یورو|usd|eur|\$|€)\b/gi;
   let m;
   while ((m = re.exec(w))) {
@@ -162,55 +186,89 @@ function findQuantitiesNextToCurrency(win) {
   return new Set(q);
 }
 
-// از یک پنجره‌ی کوچک اطراف کلیدواژه، «بهترین قیمت» را طبق قواعد انتخاب کن
-function pickPriceFromWindow(win, guardRef=null) {
-  const qtySet = findQuantitiesNextToCurrency(win);
-  const nums = parseNumbersFrom(win);
+// تشخیص زوج USD/EUR با نسبت جهانی
+function disambiguateUsdEur(nums) {
+  if (!Array.isArray(nums) || nums.length < 2) return null;
+  const a = Array.from(new Set(nums)).sort((x,y)=>x-y);
+  const targetPct = (EURUSD_RATIO - 1) * 100; // مثلاً ~18%
+  for (let i=0; i<a.length; i++) {
+    for (let j=i+1; j<a.length; j++) {
+      const small = a[i], big = a[j];
+      if (!small || !big) continue;
+      const pct = ((big / small) - 1) * 100;
+      if (Math.abs(pct - targetPct) <= RATIO_TOLERANCE_P) {
+        return { usd: small, eur: big }; // کوچکتر دلار، بزرگتر یورو
+      }
+    }
+  }
+  return null;
+}
 
-  // نگاشت به کاندیدا: ۵–۶ رقمی مستقیم؛ ۲–۳ رقمی ×۱۰۰۰ (قاعده‌ی درخواستی)
+// از یک پنجره‌ی کوچک اطراف کلیدواژه، «بهترین قیمت دلار» را انتخاب کن
+function pickPriceFromWindow(win, guardRef = null) {
+  const qtySet = findQuantitiesNextToCurrency(win);
+  const rawNums = parseNumbersFrom(win);
+
+  // نگاشت به کاندیدا: ۵–۶ رقمی مستقیم؛ ۲–۳ رقمی ×۱۰۰۰
   const cands = [];
-  for (const n of nums) {
-    if (qtySet.has(n)) continue;           // عددِ تعداد واحد
-    if (n >= 10000)              cands.push(n);        // 5–6 رقمی، خودش تومان است
-    else if (n >= 10 && n <= 999) cands.push(n * 1000); // 2–3 رقمی → ×۱۰۰۰
+  for (const n of rawNums) {
+    if (qtySet.has(n)) continue;            // عددِ تعداد واحد
+    if (n >= 10000)              cands.push(n);
+    else if (n >= 10 && n <= 999) cands.push(n * 1000);
   }
   if (!cands.length) return null;
 
-  // اگر مرجع داریم، نزدیک‌ترین به مرجع؛ وگرنه بر اساس طول رقم به ۵٫۵ نزدیک‌تر
+  // 1) تلاش برای زوج USD/EUR
+  if (cands.length >= 2) {
+    const duo = disambiguateUsdEur(cands);
+    if (duo?.usd) return duo.usd; // خروجی این اسکریپت دلار است
+  }
+
+  // 2) اگر مرجع داریم، نزدیک‌ترین به مرجع
   if (Number.isFinite(guardRef)) {
-    cands.sort((a,b) => Math.abs(a-guardRef) - Math.abs(b-guardRef));
-    return cands[0];
-  } else {
-    const score = (x) => Math.abs(String(x).length - 5.5);
-    cands.sort((a,b)=> score(a)-score(b) || b-a);
+    cands.sort((a,b)=> Math.abs(a-guardRef) - Math.abs(b-guardRef));
     return cands[0];
   }
+
+  // 3) در نهایت قاعدهٔ طول رقم (۵.۵ رقمی نزدیک‌تر)
+  const score = (x) => Math.abs(String(x).length - 5.5);
+  cands.sort((a,b)=> score(a) - score(b) || b - a);
+  return cands[0];
 }
 
-// مقدار نزدیک به کلیدواژه‌ها، با امکان استفاده از guardRef
-function valueNearKeywords(fullText, guardRef=null) {
-  const raw = faToEnDigits(normalizeFa(fullText||""));
-  const keys = KEYWORDS_CCY; // پیرامون همه‌ی توکن‌های ارزی جست‌وجو می‌کنیم
-  let best = null, bestDelta = Infinity;
+// مقدار دلار نزدیک به کلیدواژه‌ها، با پشتیبانی از نسبت EUR/USD
+function valueNearKeywords(fullText, guardRef = null) {
+  const raw = faToEnDigits(normalizeFa(fullText || ""));
 
-  for (const w of keys) {
-    const k = normalizeFa(w);
-    let idx = raw.indexOf(k);
+  // 1) پنجره‌های اطراف توکن‌های USD
+  for (const w of CCY_USD) {
+    const key = normalizeFa(w);
+    let idx = raw.indexOf(key);
     while (idx !== -1) {
-      const lo = Math.max(0, idx - 60), hi = Math.min(raw.length, idx + k.length + 60);
+      const lo = Math.max(0, idx - 60);
+      const hi = Math.min(raw.length, idx + key.length + 60);
       const win = fullText.slice(lo, hi);
       const cand = pickPriceFromWindow(win, guardRef);
-      if (Number.isFinite(cand)) {
-        const d = Number.isFinite(guardRef) ? Math.abs(cand - guardRef) : (Math.abs(String(cand).length - 5.5));
-        if (d < bestDelta) { bestDelta = d; best = cand; }
-      }
-      idx = raw.indexOf(k, idx + k.length);
+      if (Number.isFinite(cand)) return cand;
+      idx = raw.indexOf(key, idx + key.length);
     }
   }
 
-  // fallback کل متن
-  if (!Number.isFinite(best)) best = pickPriceFromWindow(fullText, guardRef);
-  return Number.isFinite(best) ? best : null;
+  // 2) اگر نشانهٔ EUR هم هست و چند عدد داریم، زوج USD/EUR را حدس بزن
+  if (hasAny(raw, CCY_EUR)) {
+    const qtySet = findQuantitiesNextToCurrency(fullText);
+    const allNums = parseNumbersFrom(fullText)
+      .map(n => (n >= 10000 ? n : (n>=10 && n<=999 ? n*1000 : NaN)))
+      .filter(n => Number.isFinite(n) && !qtySet.has(n));
+    if (allNums.length >= 2) {
+      const duo = disambiguateUsdEur(allNums);
+      if (duo?.usd) return duo.usd;
+    }
+  }
+
+  // 3) fallback: کل متن
+  const fallback = pickPriceFromWindow(fullText, guardRef);
+  return Number.isFinite(fallback) ? fallback : null;
 }
 
 // ===================================
@@ -265,6 +323,57 @@ function inSoftGuard(n, ref, pct){
 // ===================================
 // SECTION 6 — Scan one source (TTL + guard)
 // ===================================
+async function fetchText(url) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  const r = await fetch(url, { signal: ctl.signal, headers: { "user-agent":"F1-Real/1.0" }});
+  clearTimeout(timer);
+  if (!r.ok) throw new Error("HTTP "+r.status);
+  return r.text();
+}
+
+function extractBlocks(html) {
+  const parts = String(html).split('tgme_widget_message_wrap');
+  return parts.slice(1).map(b => 'tgme_widget_message_wrap' + b);
+}
+function extractMessageText(block) {
+  const m = block.match(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i);
+  return m ? htmlToText(m[1]) : null;
+}
+function toTZISO(iso, tz = TZ) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, hour12: false,
+    year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit"
+  }).formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a),{});
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+}
+const now = () => new Date();
+const toISO = (d) => d.toISOString();
+const minutesAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 60000;
+
+function extractMessageMeta(block) {
+  let id = null;
+  const dp = block.match(/data-post="[^"]+\/(\d+)"/); if (dp) id = Number(dp[1]);
+
+  let link = null, datetimeISO = null;
+  const a = block.match(/<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"/i);
+  if (a) link = a[1].startsWith("http") ? a[1] : `https://t.me${a[1]}`;
+  const t = block.match(/<time[^>]*datetime="([^"]+)"/i);
+  if (t) datetimeISO = t[1];
+
+  if (!id && link) { const m = link.match(/\/(\d+)(?:\?.*)?$/); if (m) id = Number(m[1]); }
+  return { id, link, time_iso: datetimeISO || null, time_local: datetimeISO ? toTZISO(datetimeISO, TZ) : null };
+}
+
+function inSoftGuard(n, ref, pct){
+  if (!isFinite(ref) || !isFinite(n) || !isFinite(pct)) return true; // بدون مرجع/درصد: عبور
+  const lo = ref * (1 - pct/100), hi = ref * (1 + pct/100);
+  return n >= lo && n <= hi;
+}
+
 async function scanSource(url, guardInfo) {
   const html = await fetchText(url);
   const blocks = extractBlocks(html);
@@ -281,17 +390,17 @@ async function scanSource(url, guardInfo) {
     const text = extractMessageText(b);
     if (!text) { removedCount++; continue; }
 
-    // الزام فقط «کلیدواژه‌ی ارزی»؛ فعل فروش اختیاری (برای آگهی‌های کوتاه)
-    const okCcy  = hasAny(text, KEYWORDS_CCY);
-    if (!okCcy) { removedCount++; continue; }
+    // الزام: حتماً نشانهٔ ارزی (USD یا EUR) وجود داشته باشد
+    const hasCcy = hasAny(text, KEYWORDS_CCY);
+    if (!hasCcy) { removedCount++; continue; }
 
-    // استخراج مقدار با توجه به پنجره‌ی ±۶۰ و قاعده‌ی ×۱۰۰۰ و مرجع
+    // مقدار دلار را بیرون بکش (با نسبت جهانی اگر هر دو ارز باشند)
     const val = valueNearKeywords(text, guardInfo?.ref ?? null);
     if (!isFinite(val)) { removedCount++; continue; }
 
     // قفل نرم ±pct
     if (!inSoftGuard(val, guardInfo?.ref ?? null, guardInfo?.pct ?? null)) {
-      removedCount++; 
+      removedCount++;
       continue;
     }
 
