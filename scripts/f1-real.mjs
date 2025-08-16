@@ -108,10 +108,10 @@ async function fetchText(url) {
 // کلمات فروش (بازتر)
 const KEYWORDS_SALE = [
   "فروش","فروشی","میفروشم","می‌فروشم","می فروشم",
-  "نقدی","نقد","آماده","حضوری" // برای برخی آگهی‌ها
+  "نقدی","نقد","آماده","حضوری"
 ];
 
-// توکن‌های ارزی: فقط USD/EUR (USDT را عمدی کنار گذاشتیم)
+// توکن‌های ارزی: فقط USD/EUR (USDT عمداً کنار گذاشته شده)
 const CCY_USD = ["دلار","usd","$","دلار آبی","آبی دلار","دلار ابی","ابی"];
 const CCY_EUR = ["یورو","eur","€","يورو"];
 const KEYWORDS_CCY = [...CCY_USD, ...CCY_EUR];
@@ -149,7 +149,7 @@ function hasAny(text, words) {
   return words.some(w => T.includes(normalizeFa(w)));
 }
 
-// اعداد «تعداد واحد» را که بلافاصله قبل از ارز می‌آیند پیدا کن (برای حذف: 1000 دلار / 90 یورو)
+// اعداد «تعداد واحد» که بلافاصله قبل از ارز می‌آیند (برای حذف: 1000 دلار / 90 یورو)
 function findQuantitiesNextToCurrency(win) {
   const q = [];
   const w = normalizeFa(faToEnDigits(win));
@@ -171,7 +171,7 @@ function pickPriceFromWindow(win, guardRef=null) {
   const cands = [];
   for (const n of nums) {
     if (qtySet.has(n)) continue;           // عددِ تعداد واحد
-    if (n >= 10000)         cands.push(n); // 5–6 رقمی، خودش تومان است
+    if (n >= 10000)              cands.push(n);        // 5–6 رقمی، خودش تومان است
     else if (n >= 10 && n <= 999) cands.push(n * 1000); // 2–3 رقمی → ×۱۰۰۰
   }
   if (!cands.length) return null;
@@ -431,3 +431,8 @@ async function main(){
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
 }
+
+// ===================================
+// SECTION 10 — Runner
+// ===================================
+main().catch(e => { console.error(e); process.exit(1); });
