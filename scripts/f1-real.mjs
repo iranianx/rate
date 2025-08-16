@@ -20,7 +20,7 @@ const TTL_MINUTES       = Number(process.env.REALRATE_TTL_MIN    || 60);    // �
 const NEED_MIN_SAMPLES  = Number(process.env.REALRATE_MIN_N      || 5);     // حداقل نمونه
 const TRIM_FRAC         = Number(process.env.REALRATE_TRIM_FRAC  || 0.20);  // نسبت تریم از دو سر
 const PCT_SPREAD_MAX    = Number(process.env.REALRATE_SPREAD_PCT || 1.0);   // بیشینه‌ی پراکندگی
-const SOFT_GUARD_PCT    = Number(process.env.REALRATE_GUARD_PCT  || 20);    // قفل نرم ±٪ نسبت به مرجع
+const SOFT_GUARD_PCT    = Number(process.env.REALRATE_GUARD_PCT  || 25);    // قفل نرم ±٪ نسبت به مرجع
 const FETCH_TIMEOUT_MS  = Number(process.env.REALRATE_TIMEOUT_MS || 20000); // timeout شبکه
 const REF_ENV           = Number(process.env.REALRATE_REF || NaN);          // مرجع دستی (اختیاری)
 
@@ -309,28 +309,25 @@ async function scanSource(url, guardInfo) {
 
   const candidates = [];
   let removedCount = 0;
+  const removedBreakdown = { no_time:0, old:0, no_text:0, no_ccy:0, no_val:0, guard:0 };
 
   for (const b of blocks) {
     const meta = extractMessageMeta(b);
-    if (!meta?.time_iso) { removedCount++; continue; }     // بدون زمان
+    if (!meta?.time_iso) { removedBreakdown.no_time++; removedCount++; continue; }
     const ageMin = minutesAgo(meta.time_iso);
-    if (ageMin > TTL_MINUTES) { removedCount++; continue; } // کهنه
+    if (ageMin > TTL_MINUTES) { removedBreakdown.old++; removedCount++; continue; }
 
     const text = extractMessageText(b);
-    if (!text) { removedCount++; continue; }
+    if (!text) { removedBreakdown.no_text++; removedCount++; continue; }
 
-    // الزام: حتماً نشانهٔ ارزی (USD یا EUR) وجود داشته باشد
     const hasCcy = hasAny(text, KEYWORDS_CCY);
-    if (!hasCcy) { removedCount++; continue; }
+    if (!hasCcy) { removedBreakdown.no_ccy++; removedCount++; continue; }
 
-    // مقدار دلار را بیرون بکش (با نسبت جهانی اگر هر دو ارز باشند)
     const val = valueNearKeywords(text, guardInfo?.ref ?? null);
-    if (!isFinite(val)) { removedCount++; continue; }
+    if (!isFinite(val)) { removedBreakdown.no_val++; removedCount++; continue; }
 
-    // قفل نرم ±pct
     if (!inSoftGuard(val, guardInfo?.ref ?? null, guardInfo?.pct ?? null)) {
-      removedCount++;
-      continue;
+      removedBreakdown.guard++; removedCount++; continue;
     }
 
     candidates.push({
@@ -349,7 +346,8 @@ async function scanSource(url, guardInfo) {
     source: url,
     raw_blocks: blocks.length,
     candidates,
-    removed: removedCount
+    removed: removedCount,
+    removed_breakdown: removedBreakdown   // 👈 در خروجی شمارش علت‌ها را ببین
   };
 }
 
