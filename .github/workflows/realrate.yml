@@ -3,7 +3,7 @@ name: "RealRate"
 on:
   workflow_dispatch: {}
   # schedule:
-  #   - cron: "*/15 * * * *"   # هر ۱۵ دقیقه (اختیاری)
+  #   - cron: "*/10 * * * *"   # اختیاری: هر ۱۰ دقیقه
 
 permissions:
   contents: write
@@ -14,18 +14,22 @@ jobs:
     env:
       TZ: Europe/Istanbul
 
-      # منابع (کاما-جدا). فقط اضافه کن:
-      # REALRATE_SOURCES: "https://t.me/ParsianSarafi,https://t.me/AnotherGroup"
-      REALRATE_SOURCES: "https://t.me/ParsianSarafi"
+      # قفل نرم ±٪ نسبت به مرجع (پیش‌فرض ۲۰٪)
+      REALRATE_GUARD_PCT: "20"
+      # مرجع دستی (اختیاری). خالی بگذار تا از روزانه/سالانه یا baseline گرفته شود
+      REALRATE_REF: ""
 
+      # پنجره‌ی زمانی معتبر بودن پست‌ها (دقیقه)
       REALRATE_TTL_MIN: "60"
+      # حداقل نمونه برای برآورد
       REALRATE_MIN_N: "5"
+      # نسبت تریم از دو سر برای میانه‌ی تریم‌شده
       REALRATE_TRIM_FRAC: "0.2"
-      REALRATE_SPREAD_MAX: "1.0"
-      REALRATE_MIN: "80000"
-      REALRATE_MAX: "130000"
+      # بیشینه‌ی پراکندگی مجاز (٪) — توجه: کلید درست مطابق کد جدید
+      REALRATE_SPREAD_PCT: "1.0"
+      # Timeout شبکه
       REALRATE_TIMEOUT_MS: "20000"
-      REALRATE_RETRIES: "2"
+
       DEBUG: "0"
 
     steps:
@@ -39,13 +43,13 @@ jobs:
         with:
           node-version: 20
 
-      - name: Run realrate
-        run: node scripts/realrate.mjs
+      - name: Run f1-real
+        run: node scripts/f1-real.mjs
 
       - name: Show result
         run: |
-          echo "Result file: data/realrate.json"
-          cat data/realrate.json || true
+          echo "Result file: data/f1-real.json"
+          cat data/f1-real.json || true
 
       - name: Commit & push if changed
         run: |
@@ -54,9 +58,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-          if [[ -n "$(git status --porcelain data/realrate.json)" ]]; then
-            git add data/realrate.json
-            git commit -m "chore(realrate): update crowd sell-rate estimate"
+          if [[ -n "$(git status --porcelain data/f1-real.json)" ]]; then
+            git add data/f1-real.json
+            git commit -m "chore(f1-real): update crowd sell-rate estimate"
             git push
           else
             echo "No changes to commit."
