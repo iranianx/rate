@@ -1,48 +1,11 @@
 {
-  "version": "v1",
-  "tz": "Europe/Istanbul",
-  "date": null,
-  "updated_at": null,
-  "band_guard": {
-    "ref_kind": "yesterday_close_or_intraday_last",
-    "pct": 20,
-    "ref_values": {
-      "USD": null, "USDT": null, "EUR": null, "GBP": null, "CAD": null, "AUD": null, "RUB": null,
-      "AED": null, "KWD": null, "IQD": null, "SAR": null, "TRY": null, "GEL": null, "AZN": null,
-      "AMD": null, "JPY": null, "CNY": null, "AFN": null
-    },
-    "violations": [
-      /* مثال وقتی چیزی بیرون باند بود:
-      { "code": "USD", "candidate": 112000, "ref": 93000, "limit_low": 74400, "limit_high": 111600, "action": "carry_forward_prev", "note": "out_of_band_>20pct" }
-      */
-    ]
+  "status": "ok",
+  "as_of": "2025-08-16T14:05:00Z",
+  "spread_pct_window": 7,
+  "ref": {
+    "usd_cash": 92000,
+    "eur_cash": 108500,
+    "usdt_mid": 91900
   },
-  "inputs": {
-    "from_f1_rate": "data/f1-rate.json",
-    "from_real_f1": "data/real-f1.json",
-    "notes": ""
-  },
-  "items": [
-    { "code": "USD",  "name": "US Dollar",         "value": null, "rule": "USD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "USDT", "name": "Tether (USDT)",     "value": null, "rule": "USDT", "delta": null, "trend": null, "notes": "" },
-    { "code": "EUR",  "name": "Euro",              "value": null, "rule": "EUR",  "delta": null, "trend": null, "notes": "" },
-    { "code": "GBP",  "name": "British Pound",     "value": null, "rule": "GBP",  "delta": null, "trend": null, "notes": "" },
-    { "code": "CAD",  "name": "Canadian Dollar",   "value": null, "rule": "CAD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "AUD",  "name": "Australian Dollar", "value": null, "rule": "AUD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "RUB",  "name": "Russian Ruble",     "value": null, "rule": "RUB",  "delta": null, "trend": null, "notes": "" },
-    { "code": "AED",  "name": "UAE Dirham",        "value": null, "rule": "AED",  "delta": null, "trend": null, "notes": "" },
-    { "code": "KWD",  "name": "Kuwaiti Dinar",     "value": null, "rule": "KWD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "IQD",  "name": "Iraqi Dinar",       "value": null, "rule": "IQD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "SAR",  "name": "Saudi Riyal",       "value": null, "rule": "SAR",  "delta": null, "trend": null, "notes": "" },
-    { "code": "TRY",  "name": "Turkish Lira",      "value": null, "rule": "TRY",  "delta": null, "trend": null, "notes": "" },
-    { "code": "GEL",  "name": "Georgian Lari",     "value": null, "rule": "GEL",  "delta": null, "trend": null, "notes": "" },
-    { "code": "AZN",  "name": "Azerbaijani Manat", "value": null, "rule": "AZN",  "delta": null, "trend": null, "notes": "" },
-    { "code": "AMD",  "name": "Armenian Dram",     "value": null, "rule": "AMD",  "delta": null, "trend": null, "notes": "" },
-    { "code": "JPY",  "name": "Japanese Yen",      "value": null, "rule": "JPY",  "delta": null, "trend": null, "notes": "" },
-    { "code": "CNY",  "name": "Chinese Yuan",      "value": null, "rule": "CNY",  "delta": null, "trend": null, "notes": "" },
-    { "code": "AFN",  "name": "Afghan Afghani",    "value": null, "rule": "AFN",  "delta": null, "trend": null, "notes": "" }
-  ],
-  "log": [
-    /* رویدادهای محاسباتی/ادغامی/تصمیم‌ها برای دیباگ شفاف */
-  ]
+  "notes": "فیلتر هم‌خوانی کانال‌های crowd با مرجع روزانه؛ قبول اعداد در ±7٪ از مقدار مرجع"
 }
