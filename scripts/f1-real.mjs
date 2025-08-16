@@ -433,6 +433,22 @@ async function main(){
 }
 
 // ===================================
-// SECTION 10 — Runner
+// SECTION 10 — Runner (always write OUTFILE)
 // ===================================
-main().catch(e => { console.error(e); process.exit(1); });
+(async () => {
+  try {
+    await main();
+  } catch (e) {
+    // حتی در خطا هم فایل خروجی بساز تا CI خالی نمونه
+    fs.mkdirSync(OUTDIR, { recursive: true });
+    const payload = {
+      status: "error",
+      scraped_at: new Date().toISOString(),
+      message: String(e),
+      stack: (e && e.stack) ? String(e.stack).split("\n").slice(0,3).join("\n") : undefined
+    };
+    fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
+    console.error("F1-REAL ERROR:", e);
+    process.exit(1);
+  }
+})();
