@@ -1,4 +1,4 @@
-name: "F1 Rate: test"
+name: "F1 Rate"
 
 on:
   workflow_dispatch: {}
