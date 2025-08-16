@@ -424,6 +424,52 @@ function extractTether(fullText) {
 }
 
 // =======================================
+// SECTION 4.2 — TETHER parser (buy/sell normalization)
+// =======================================
+
+function extractTether(fullText) {
+  const norm = normalizeFa(fullText);
+  const t = faToEnDigits(norm);
+
+  // اولین "فروش:" و "خرید:" در متن (معمولاً مربوط به USDT در صدر پست است)
+  const sellM = t.match(/فروش\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+  const buyM  = t.match(/خرید\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+
+  // برخی پست‌ها به‌جای buy/sell، فقط «نرخ تتر: …» دارند
+  const rateM = t.match(/نرخ\s*تتر[^0-9]*([0-9][0-9.,\s]*)/i) || t.match(/تتر\s*[:\-]?\s*([0-9][0-9.,\s]*)/i);
+
+  let sell = sellM ? Number((sellM[1] || "").replace(/[^\d]/g, "")) : null;
+  let buy  = buyM  ? Number((buyM[1]  || "").replace(/[^\d]/g, "")) : null;
+
+  // ✅ نرمال‌سازی: اگر هر دو وجود دارند، اطمینان بده "sell ≥ buy"
+  if (sell != null && buy != null && sell < buy) {
+    const tmp = sell; sell = buy; buy = tmp;
+  }
+
+  // محاسبهٔ mid
+  let mid = null;
+  if (sell != null && buy != null) {
+    mid = Math.round((sell + buy) / 2);
+  } else if (sell != null || buy != null) {
+    mid = sell != null ? sell : buy;
+  } else if (rateM) {
+    mid = Number((rateM[1] || "").replace(/[^\d]/g, ""));
+  }
+
+  // اگر هیچ عددی درنیامد، یا خارج از بازهٔ منطقی بود، رد کن
+  if (sell == null && buy == null && mid == null) return null;
+  if (mid && !plausible("USDT", mid)) return null;
+
+  return {
+    sell: sell ?? null,
+    buy:  buy  ?? null,
+    mid:  mid  ?? null,
+    unit: "تومان",
+    raw_line: fullText
+  };
+}
+
+// =======================================
 // SECTION 5.1 — Shared helpers for scanners
 // =======================================
 
