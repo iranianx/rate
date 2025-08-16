@@ -120,26 +120,6 @@ const CCY_USD = ["دلار","usd","$","دلار آبی","آبی دلار","دل�
 const CCY_EUR = ["یورو","eur","€","يورو"];
 const KEYWORDS_CCY = [...CCY_USD, ...CCY_EUR];
 
-function htmlToText(html) {
-  return String(html)
-    .replace(/<\s*br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
-}
-function normalizeFa(s) {
-  return String(s || "")
-    .replace(/\u200c/g, " ").replace(/\u0640/g, "")
-    .replace(/[\u064B-\u0652]/g, " ")
-    .replace(/ي/g, "ی").replace(/ك/g, "ک")
-    .replace(/\s+/g, " ").trim();
-}
-function faToEnDigits(str) {
-  const map = {"۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9",
-               "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9",
-               "٫":".","٬":",","،":","};
-  return String(str||"").replace(/[۰-۹٠-٩٫٬،]/g, ch => map[ch] ?? ch);
-}
-
 // حذف نویزهای عددی رایج (موبایل/ساعت/تاریخ)
 function stripNoiseNumbers(s) {
   const t = faToEnDigits(normalizeFa(s||""));
@@ -323,57 +303,6 @@ function inSoftGuard(n, ref, pct){
 // ===================================
 // SECTION 6 — Scan one source (TTL + guard)
 // ===================================
-async function fetchText(url) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-  const r = await fetch(url, { signal: ctl.signal, headers: { "user-agent":"F1-Real/1.0" }});
-  clearTimeout(timer);
-  if (!r.ok) throw new Error("HTTP "+r.status);
-  return r.text();
-}
-
-function extractBlocks(html) {
-  const parts = String(html).split('tgme_widget_message_wrap');
-  return parts.slice(1).map(b => 'tgme_widget_message_wrap' + b);
-}
-function extractMessageText(block) {
-  const m = block.match(/tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i);
-  return m ? htmlToText(m[1]) : null;
-}
-function toTZISO(iso, tz = TZ) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz, hour12: false,
-    year:"numeric",month:"2-digit",day:"2-digit",
-    hour:"2-digit",minute:"2-digit",second:"2-digit"
-  }).formatToParts(d).reduce((a,p)=>(a[p.type]=p.value,a),{});
-  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
-}
-const now = () => new Date();
-const toISO = (d) => d.toISOString();
-const minutesAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 60000;
-
-function extractMessageMeta(block) {
-  let id = null;
-  const dp = block.match(/data-post="[^"]+\/(\d+)"/); if (dp) id = Number(dp[1]);
-
-  let link = null, datetimeISO = null;
-  const a = block.match(/<a[^>]*class="[^"]*tgme_widget_message_date[^"]*"[^>]*href="([^"]+)"/i);
-  if (a) link = a[1].startsWith("http") ? a[1] : `https://t.me${a[1]}`;
-  const t = block.match(/<time[^>]*datetime="([^"]+)"/i);
-  if (t) datetimeISO = t[1];
-
-  if (!id && link) { const m = link.match(/\/(\d+)(?:\?.*)?$/); if (m) id = Number(m[1]); }
-  return { id, link, time_iso: datetimeISO || null, time_local: datetimeISO ? toTZISO(datetimeISO, TZ) : null };
-}
-
-function inSoftGuard(n, ref, pct){
-  if (!isFinite(ref) || !isFinite(n) || !isFinite(pct)) return true; // بدون مرجع/درصد: عبور
-  const lo = ref * (1 - pct/100), hi = ref * (1 + pct/100);
-  return n >= lo && n <= hi;
-}
-
 async function scanSource(url, guardInfo) {
   const html = await fetchText(url);
   const blocks = extractBlocks(html);
@@ -536,7 +465,9 @@ async function main(){
   const all = results.flatMap(r => r.candidates);
   const sum = summarize(all);
 
+  // ... داخل main درست قبل از writeFileSync
   const payload = buildPayload(results, sum, guardInfo);
+  console.log("Writing:", OUTFILE);           // 👈 لاگ اضافه شد
   fs.writeFileSync(OUTFILE, JSON.stringify(payload, null, 2), "utf8");
   console.log(payload);
 }
