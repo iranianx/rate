@@ -153,13 +153,13 @@ function toTZISO(iso, tz = TZ) {
 }
 
 // === قفل‌های نرم (نه سقف/کف قیمتی) ===
-// الگوی موبایل (با فاصله/خط تیره اختیاری): 09xx xxx xxxx یا 9xx...
-const RE_MOBILE = /\b0?9[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\b/g;
-// تاریخ شمسی/میلادی همان خط
+// الگوی موبایل ایران (+98 یا 09، با فاصله/خط‌تیره اختیاری)
+const RE_MOBILE = /(?:\+?98[-\s]?)?9[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\b/g;
+// تاریخ شمسی/میلادی همان خط (حذف نکن)
 const RE_DATE_SHAMSI = /\b(13|14)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b/g;
 const RE_DATE_GREG  = /\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b/g;
-// ساعت
-const RE_TIME = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
+// ساعت 08:30 یا 8.05 یا 8:05:12
+const RE_TIME = /\b\d{1,2}[:٫\.]\d{2}(?::\d{2})?\b/g;
 
 // پاک‌سازی پنجرهٔ متن از اعداد مزاحم (موبایل/تاریخ/ساعت)
 function cleanForNumericExtraction(s) {
@@ -364,70 +364,29 @@ function extractCurrenciesFromSuli(fullText) {
 }
 
 // =======================================
-// SECTION 5 — HERAT/TEHRAN Cash parser (نقدی؛ نزدیکِ کلیدواژه، بدون حد قیمت + قفل نرم ضد آلودگی)
+// SECTION 5 — HERAT/TEHRAN Cash parser
+// (نقدی؛ نزدیکِ کلیدواژه، بدون حد قیمت + حذف نویز عددی)
 // =======================================
-
-// حذف نویزهای عددی معمول (شماره موبایل/ساعت/تاریخ) بدون اعمال سقف/کف قیمتی
-function stripNoiseNumbers(s) {
-  const t = faToEnDigits(normalizeFa(s || ""));
-  let u = t
-    // شماره موبایل ایران (09xxxxxxxxx یا با کد کشور)
-    .replace(/\+?98[-\s]?\d{2,3}[-\s]?\d{3}[-\s]?\d{4}/g, " ")
-    .replace(/\b0?9\d{9}\b/g, " ")
-    // ساعت‌ها مثل 08:35 یا 8.05
-    .replace(/\b\d{1,2}\s*[:٫\.]\s*\d{2}\b/g, " ")
-    // تاریخ‌ها مثل 1404/05/25 یا 2025-08-16
-    .replace(/\b\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}\b/g, " ")
-    .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, " ");
-  return u.replace(/\s+/g, " ").trim();
-}
-
-// برگرداندن همهٔ اعداد کاندید بعد از تمیزکاری (بدون حد قیمت ثابت)
-function extractAllAmounts(s) {
-  const t = stripNoiseNumbers(s);
-  const re = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{4,7})/g; // هزارگان یا عدد 4-7 رقمی
-  const out = [];
-  let m;
-  while ((m = re.exec(t))) {
-    const n = Number((m[1] || "").replace(/[^\d]/g, ""));
-    if (Number.isFinite(n)) out.push(n);
-  }
-  return out;
-}
-
-// انتخاب بهترین عدد وقتی یک لیست داریم (بدون اعمال سقف/کف)
-// - اگر دو عدد خیلی نزدیک‌اند (≤۲٪)، میانگین
-// - در غیر این صورت مدیان
-function chooseBestAmount(nums) {
-  if (!nums?.length) return null;
-  if (nums.length === 1) return nums[0];
-  const min = Math.min(...nums), max = Math.max(...nums);
-  const spreadPct = ((max - min) / ((min + max) / 2)) * 100;
-  if (spreadPct <= 2) return Math.round((min + max) / 2);
-  const sorted = nums.slice().sort((a,b)=>a-b);
-  const k = Math.floor(sorted.length/2);
-  return sorted.length % 2 ? sorted[k] : Math.round((sorted[k-1] + sorted[k]) / 2);
-}
-
-// — HERAT/TEHRAN: نقدی (اولویت نزدیک به کلیدواژه‌ها، بدون حد قیمت)
 function extractCashValue(fullText, include, exclude) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
   const cand = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
   const target = cand.length ? cand : lines;
 
-  // تلاش 1: عدد نزدیک به کلیدواژه‌ها (با پاک‌سازی موبایل/تاریخ/ساعت)
+  // تلاش 1: عدد نزدیک به کلیدواژه‌ها (پاک‌سازی موبایل/تاریخ/ساعت درون extractNearKeywords)
   const near = extractNearKeywords(fullText, include);
   if (near != null) {
     return { value: near, unit: "تومان", raw_line: target.join(" | ") };
   }
 
-  // تلاش 2: مرور خط‌به‌خط هدف
+  // تلاش 2: مرور خط‌به‌خطِ هدف، با پاک‌سازی و انتخاب بهترین عدد
   for (const ln of target) {
-    const nums = extractAllAmounts(ln);
+    const cleaned = cleanForNumericExtraction(ln);
+    const nums = extractAllAmounts(cleaned);
     if (!nums.length) continue;
 
     if (nums.length >= 2) {
+      // اگر چند عدد داریم (مثلاً خرید/فروش یا بازه)، میانگین min/max را بگیریم
       const min = Math.min(...nums), max = Math.max(...nums);
       const avg = Math.round((min + max) / 2);
       return { value: avg, min, max, unit: "تومان", raw_line: ln };
