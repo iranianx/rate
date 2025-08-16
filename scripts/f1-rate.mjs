@@ -140,7 +140,7 @@ function dateKeyInTZ(d, tz = TZ) {
   }).format(d); // YYYY-MM-DD
 }
 
-// ——— افزوده‌ها: زمان محلی + استخراج نزدیک کلیدواژه (بدون حد قیمت) ———
+// ——— افزوده‌ها: زمان محلی + قفل‌های نرمِ عددی (بدون حد قیمت) ———
 function toTZISO(iso, tz = TZ) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -152,14 +152,61 @@ function toTZISO(iso, tz = TZ) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
+// === قفل‌های نرم (نه سقف/کف قیمتی) ===
+// الگوی موبایل (با فاصله/خط تیره اختیاری): 09xx xxx xxxx یا 9xx...
+const RE_MOBILE = /\b0?9[\s\-]?\d{2}[\s\-]?\d{3}[\s\-]?\d{4}\b/g;
+// تاریخ شمسی/میلادی همان خط
+const RE_DATE_SHAMSI = /\b(13|14)\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b/g;
+const RE_DATE_GREG  = /\b20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}\b/g;
+// ساعت
+const RE_TIME = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
+
+// پاک‌سازی پنجرهٔ متن از اعداد مزاحم (موبایل/تاریخ/ساعت)
+function cleanForNumericExtraction(s) {
+  if (!s) return s;
+  let t = faToEnDigits(normalizeFa(s));
+  t = t.replace(RE_MOBILE, " ");
+  t = t.replace(RE_DATE_SHAMSI, " ");
+  t = t.replace(RE_DATE_GREG, " ");
+  t = t.replace(RE_TIME, " ");
+  return t;
+}
+
+// استخراج همهٔ عددها (پس از پاک‌سازی) به‌صورت صحیح
+function extractAllAmounts(cleaned) {
+  const out = [];
+  // ≥۵ رقم یا الگوی هزارگان (1,234,56…)
+  const numRe = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{5,})/g;
+  let m;
+  while ((m = numRe.exec(cleaned))) {
+    const n = Number((m[1] || "").replace(/[^\d]/g, ""));
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
+// انتخاب «بهترین» عدد برای تومان (ترجیح طول ۵–۷ رقم، نزدیک به ۶)
+function chooseBestAmount(nums) {
+  if (!nums || !nums.length) return null;
+  if (nums.length === 1) return nums[0];
+  // امتیازدهی روی طول رقم (۵–۷ ایده‌آل بازار فعلی؛ قید قیمتی نیست، صرفاً الگوی نوشتاری)
+  const scored = nums.map((n, i) => {
+    const len = String(n).length;
+    const dist = Math.abs(len - 6); // نزدیک‌تر به ۶ بهتر
+    return { n, i, score: dist };
+  });
+  scored.sort((a, b) => a.score - b.score || b.i - a.i); // نزدیک‌تر، سپس «دیرتر در متن»
+  return scored[0].n;
+}
+
 /**
  * extractNearKeywords:
- * - پنجرهٔ ±۶۰ کاراکتر اطراف کلیدواژه‌ها
- * - بدون حد قیمت؛ فقط شرط «حداقل ۵ رقم»
+ * - در پنجرهٔ ±۶۰ کاراکتر اطراف هر کلیدواژه دنبال عدد می‌گردد
+ * - قبل از استخراج، موبایل/تاریخ/ساعت را حذف می‌کند
+ * - بدون هرگونه حدِ کف/سقف قیمتی
  */
 function extractNearKeywords(fullText, includeWords) {
-  const raw = faToEnDigits(fullText || "");
-  const numRe = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{5,})/g; // ≥۵ رقم یا الگوی هزارگان
+  const raw = fullText || "";
   const norm = normalizeFa(raw);
 
   // 1) پنجرهٔ اطراف هر کلیدواژه
@@ -170,20 +217,18 @@ function extractNearKeywords(fullText, includeWords) {
     const lo = Math.max(0, idx - 60);
     const hi = Math.min(raw.length, idx + key.length + 60);
     const win = raw.slice(lo, hi);
-    let m;
-    while ((m = numRe.exec(win))) {
-      const clean = (m[1] || "").replace(/[^\d]/g, "");
-      if (clean.length >= 5) return Number(clean);
-    }
+
+    const cleaned = cleanForNumericExtraction(win);
+    const nums = extractAllAmounts(cleaned);
+    const best = chooseBestAmount(nums);
+    if (best != null) return best;
   }
 
-  // 2) fallback: اولین عدد با طول ≥۵ در کل متن
-  let m2;
-  while ((m2 = numRe.exec(raw))) {
-    const clean = (m2[1] || "").replace(/[^\d]/g, "");
-    if (clean.length >= 5) return Number(clean);
-  }
-  return null;
+  // 2) fallback: کل متن (بعد از پاک‌سازی)
+  const cleanedAll = cleanForNumericExtraction(raw);
+  const numsAll = extractAllAmounts(cleanedAll);
+  const bestAll = chooseBestAmount(numsAll);
+  return bestAll != null ? bestAll : null;
 }
 
 // =====================================
@@ -319,31 +364,80 @@ function extractCurrenciesFromSuli(fullText) {
 }
 
 // =======================================
-// SECTION 5 — HERAT/TEHRAN Cash parser (نقدی؛ نزدیکِ کلیدواژه)
+// SECTION 5 — HERAT/TEHRAN Cash parser (نقدی؛ نزدیکِ کلیدواژه، بدون حد قیمت + قفل نرم ضد آلودگی)
 // =======================================
+
+// حذف نویزهای عددی معمول (شماره موبایل/ساعت/تاریخ) بدون اعمال سقف/کف قیمتی
+function stripNoiseNumbers(s) {
+  const t = faToEnDigits(normalizeFa(s || ""));
+  let u = t
+    // شماره موبایل ایران (09xxxxxxxxx یا با کد کشور)
+    .replace(/\+?98[-\s]?\d{2,3}[-\s]?\d{3}[-\s]?\d{4}/g, " ")
+    .replace(/\b0?9\d{9}\b/g, " ")
+    // ساعت‌ها مثل 08:35 یا 8.05
+    .replace(/\b\d{1,2}\s*[:٫\.]\s*\d{2}\b/g, " ")
+    // تاریخ‌ها مثل 1404/05/25 یا 2025-08-16
+    .replace(/\b\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}\b/g, " ")
+    .replace(/\b\d{1,2}[\/\-]\d{1,2}\b/g, " ");
+  return u.replace(/\s+/g, " ").trim();
+}
+
+// برگرداندن همهٔ اعداد کاندید بعد از تمیزکاری (بدون حد قیمت ثابت)
+function extractAllAmounts(s) {
+  const t = stripNoiseNumbers(s);
+  const re = /(\d{1,3}(?:[,\.\s٬]\d{3})+|\d{4,7})/g; // هزارگان یا عدد 4-7 رقمی
+  const out = [];
+  let m;
+  while ((m = re.exec(t))) {
+    const n = Number((m[1] || "").replace(/[^\d]/g, ""));
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
+// انتخاب بهترین عدد وقتی یک لیست داریم (بدون اعمال سقف/کف)
+// - اگر دو عدد خیلی نزدیک‌اند (≤۲٪)، میانگین
+// - در غیر این صورت مدیان
+function chooseBestAmount(nums) {
+  if (!nums?.length) return null;
+  if (nums.length === 1) return nums[0];
+  const min = Math.min(...nums), max = Math.max(...nums);
+  const spreadPct = ((max - min) / ((min + max) / 2)) * 100;
+  if (spreadPct <= 2) return Math.round((min + max) / 2);
+  const sorted = nums.slice().sort((a,b)=>a-b);
+  const k = Math.floor(sorted.length/2);
+  return sorted.length % 2 ? sorted[k] : Math.round((sorted[k-1] + sorted[k]) / 2);
+}
+
+// — HERAT/TEHRAN: نقدی (اولویت نزدیک به کلیدواژه‌ها، بدون حد قیمت)
 function extractCashValue(fullText, include, exclude) {
   const norm = normalizeFa(fullText);
   const lines = norm.split(/\n+/).map(l => l.trim()).filter(Boolean);
   const cand = lines.filter(ln => hasAny(ln, include) && !hasAny(ln, exclude));
   const target = cand.length ? cand : lines;
 
-  // تلاش 1: عدد نزدیک به کلیدواژه‌ها
+  // تلاش 1: عدد نزدیک به کلیدواژه‌ها (با پاک‌سازی موبایل/تاریخ/ساعت)
   const near = extractNearKeywords(fullText, include);
-  if (near) return { value: near, unit: "تومان", raw_line: target.join(" | ") };
-
-  // تلاش 2: بازه/اولین عدد
-  let nums = [];
-  for (const ln of target) nums.push(...pickIntegersAll(ln));
-  nums = nums.filter(Boolean);
-  if (!nums.length) return null;
-
-  if (nums.length >= 2) {
-    const min = Math.min(...nums), max = Math.max(...nums);
-    const avg = Math.round((min + max) / 2);
-    return { value: avg, min, max, unit: "تومان", raw_line: target.join(" | ") };
-  } else {
-    return { value: nums[0], unit: "تومان", raw_line: target[0] };
+  if (near != null) {
+    return { value: near, unit: "تومان", raw_line: target.join(" | ") };
   }
+
+  // تلاش 2: مرور خط‌به‌خط هدف
+  for (const ln of target) {
+    const nums = extractAllAmounts(ln);
+    if (!nums.length) continue;
+
+    if (nums.length >= 2) {
+      const min = Math.min(...nums), max = Math.max(...nums);
+      const avg = Math.round((min + max) / 2);
+      return { value: avg, min, max, unit: "تومان", raw_line: ln };
+    } else {
+      const picked = chooseBestAmount(nums);
+      if (picked != null) return { value: picked, unit: "تومان", raw_line: ln };
+    }
+  }
+
+  return null;
 }
 
 // =======================================
